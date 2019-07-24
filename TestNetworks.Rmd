@@ -1,0 +1,187 @@
+---
+title: "Test networks with 2018 Long Lake data set"
+author: "Lauren White"
+date: "7/15/2019"
+output: html_document
+---
+
+*Site info:*
+- Coffee guy and Lily pads were baited with fish food (positive control for non-carp - tagged many native species as well)
+- John was an unbaited site 
+- Kens only site baited with corn
+
+*File info:*
+- corn_sort.csv = all pit tagged fish from 2018.This includes species other than carp. 
+- corn_kens_all_more.csv = all detections from the baited site during the experiment. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE)
+```
+
+## Load libraries, load data, clean data
+
+```{r}
+library(dplyr)
+#Capture data: refromat capture date as POISXct; retain PIT#, species, and capture date
+pit_capture <-read.csv("corn_sort.csv")
+pit_capture$CaptureDate<-as.POSIXct(pit_capture$Date, format='%m/%d/%y', tz="CDT")
+pit_capture<- select(pit_capture, c(PIT, Species, CaptureDate))
+head(pit_capture)
+
+#Lily pads site
+lily_reader<-read.csv("lily_pads_working_all.csv", stringsAsFactors = FALSE)
+lily_reader$DATETIME<- as.POSIXct(paste(lily_reader$DATE,lily_reader$TIME), format='%m/%d/%y %H:%M', tz="CDT")
+lily_reader<- select(lily_reader, c(PIT, DATETIME))
+
+lily<- merge(lily_reader, pit_capture,  by="PIT")
+lily$site<-"L"
+head(lily)
+
+#Coffee site
+coffee_reader<-read.csv("coffee_guy_working.csv", stringsAsFactors = FALSE)
+coffee_reader$DATETIME<- as.POSIXct(paste(coffee_reader$DATE,coffee_reader$TIME), format='%m/%d/%y %H:%M', tz="CDT")
+coffee_reader<- select(coffee_reader, c(PIT, DATETIME))
+coffee<- merge(coffee_reader, pit_capture,  by="PIT")
+coffee$site<-"C"
+head(coffee)
+
+#Kens site
+kens_reader<-read.csv("kens_working_all.csv", stringsAsFactors = FALSE)
+kens<- merge(kens_reader, pit_capture,  by="PIT")
+kens$DATETIME<-as.POSIXct(paste(kens$DATE,kens$TIME), format='%m/%d/%y %H:%M', tz="CDT")
+kens<- select(kens, c(PIT, DATETIME, Species, CaptureDate))
+kens$site<-"K"
+head(kens)
+
+#Johns site
+johns_reader<-read.csv("johns_working_all.csv", stringsAsFactors = FALSE)
+johns_reader$DATETIME<- as.POSIXct(paste(johns_reader$DATE,johns_reader$TIME), format='%m/%d/%y %H:%M', tz="CDT")
+johns_reader<- select(johns_reader, c(PIT, DATETIME))
+johns<- merge(johns_reader, pit_capture,  by="PIT")
+johns$site<-"J"
+head(johns)
+
+
+#Combine observations across sites
+combined_sites <- rbind(lily,coffee,kens,johns) 
+head(combined_sites)
+combined_sites<-filter(combined_sites, Species=="Ccarp")
+combined_sites <- arrange(combined_sites, DATETIME)
+
+(length(unique(combined_sites$PIT))) #how many uniquely tagged carp?
+(length(unique(combined_sites$site))) #how many PIT Tag readers?
+
+```
+## Create degree distributions both for individual carp and readers/sites
+
+```{r}
+#calculate degree distributions
+PITs<-unique(combined_sites$PIT)
+carp.degree<-data.frame(PITs, numsites= rep(NA, length(PITs)))
+for(i in 1:length(PITs)){
+  carp.degree$numsites[i]<-length(unique(combined_sites$site[which(combined_sites$PIT==PITs[i])]))
+}
+
+hist(carp.degree$numsites, xlab= "Number of readers visited per carp", main=NULL, cex.lab=1.5, cex.axis=1.5)
+
+Readers<-unique(combined_sites$site)
+reader.degree<-data.frame(Readers, numcarp=rep(NA, length(Readers)))
+for(i in 1:length(Readers)){
+  reader.degree$numcarp[i]<-length(unique(combined_sites$PIT[which(combined_sites$site==Readers[i])]))
+}
+hist(reader.degree$numcarp, xlab="Number of carp caotured by each reader", main=NULL, cex.lab=1.5, cex.axis=1.5)
+
+```
+
+## Two mode bipartite network to one mode projection
+Across entire date range of data collection
+Adapted from: <https://solomonmessing.wordpress.com/2012/09/30/working-with-bipartiteaffiliation-network-data-in-r/>
+```{r}
+edgelist<-data.frame(PIT=combined_sites$PIT, Reader=combined_sites$site)
+
+library('Matrix')
+A <- spMatrix(nrow=length(unique(edgelist$PIT)),
+        ncol=length(unique(edgelist$Reader)),
+        i = as.numeric(factor(edgelist$PIT)),
+        j = as.numeric(factor(edgelist$Reader)),
+        x = rep(1, length(as.numeric(edgelist$PIT))) )
+row.names(A) <- levels(factor(edgelist$PIT))
+colnames(A) <- levels(factor(edgelist$Reader))
+# summary(A) #bipartite network representation
+
+#Carp have ties if they fed at the same reader
+Arow <- tcrossprod(A)
+# Arow
+
+#Readers have ties if the same carp fed at current feeder and feeder of interest
+Acol <- tcrossprod(t(A))
+Acol
+```
+
+## Plotting two-mode (affiliation) data
+Resources from: <http://www.shizukalab.com/toolkits/sna/bipartite>
+
+```{r}
+# Load the 'igraph' library
+library('igraph')
+
+#using carp data
+bi<-graph.incidence(A, mode="all") #undirected, named graph that is bipartite
+plot(bi, layout=layout.fruchterman.reingold, vertex.label=NA)
+V(bi)$type #two types of node (carp vs. site)
+V(bi)$name #name of node
+
+plot(bi, layout = layout_as_bipartite,
+     vertex.color=c("green","cyan")[V(bi)$type+1], vertex.label=NA)
+pr<-bipartite.projection(bi) 
+
+#co-membership network of nodes ($proj1), or a network of groups that share members ($proj2).
+pr
+# get.adjacency(pr$proj1,sparse=FALSE,attr="weight")
+plot(pr$proj2)
+
+# install.packages('bipartite')
+library('bipartite')
+visweb(t(A), prednames=FALSE, labsize = 3)
+plotweb(as.matrix(A), text.rot=90, labsize=1, low.lablength = 6, text.low.col="black")
+```
+
+## Make edgelist
+
+Make edgelist based on shared dates
+```{r}
+library(lubridate)
+
+dates<-unique(combined_sites$DATETIME) #how many dates of observation in dataset?
+length(dates)
+
+(min_date<-min(dates))
+(max_date<-max(dates))
+
+start_date<-as.POSIXct("2018-08-22 12:00:00 CDT")
+end_date<-as.POSIXct("2018-10-24 12:00:00 CDT")
+
+num_days<-as.numeric(end_date-start_date)
+
+#filter sampling dates to be from noon to noon, e.g.
+test_sub<- combined_sites %>% filter(DATETIME >= as.POSIXct("2018-08-22 12:00:00 CDT", tz="CDT") & DATETIME <= as.POSIXct("2018-08-23 12:00:00 CDT", tz="CDT"))
+
+
+#Create a list of edgelists
+#are indviduals captured within the same sampling day? if so, record edgelist
+
+edgelist<-list()
+for(i in 1:num_days){
+  sub_combined<-combined_sites %>% filter(DATETIME >= as.POSIXct(start_date+ (i-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + i*86400, tz="CDT"))
+  # print(sub_combined)
+  sub_ID<-unique(sub_combined$PIT)
+  
+  if(length(sub_ID)>1)
+  {
+     edgelist[[i]]<-data.frame(PIT=sub_combined$PIT, Location=sub_combined$site)
+  }
+}
+
+
+```
+
