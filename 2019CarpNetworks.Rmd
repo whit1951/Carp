@@ -108,6 +108,13 @@ Identify number of unique visitors per day and whether carp are being detected b
 
 
 ```{r}
+ggplot(data=merged_br, aes(DATETIME, as.factor(PIT), colour=Antenna)) +
+  geom_point(alpha=0.5) +
+  scale_x_datetime(date_breaks="1 day")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text=element_text(size=8), axis.title = element_text(size=10))
+
 dates<-unique(merged_br$DATETIME) #how many dates of observation in dataset?
 (min_date<-min(dates))
 (max_date<-max(dates))
@@ -187,6 +194,14 @@ Identify number of unique visitors per day and whether carp are being detected b
 * Antennae A4 is not visited at all
 
 ```{r}
+ggplot(data=merged_crown, aes(DATETIME, as.factor(PIT), colour=Antenna)) +
+  geom_point(alpha=0.5) +
+  scale_x_datetime(date_breaks="1 day")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text=element_text(size=8), axis.title = element_text(size=10))
+
+
 dates<-unique(merged_crown$DATETIME) #how many dates of observation in dataset?
 (min_date<-min(dates))
 (max_date<-max(dates))
@@ -312,7 +327,7 @@ plotweb(as.matrix(A), text.rot=90, labsize=1, low.lablength = 6, text.low.col="b
 
 ```{r}
 #Combine observations across sites
-combined_sites <- rbind(boatramp2, crown, lotus) 
+combined_sites <- rbind(merged_br, merged_crown) 
 head(combined_sites)
 
 #Bipartite network for boat ramp site
