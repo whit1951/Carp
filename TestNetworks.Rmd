@@ -82,14 +82,14 @@ for(i in 1:length(PITs)){
   carp.degree$numsites[i]<-length(unique(combined_sites$site[which(combined_sites$PIT==PITs[i])]))
 }
 
-hist(carp.degree$numsites, xlab= "Number of readers visited per carp", main=NULL, cex.lab=1.5, cex.axis=1.5)
+hist(carp.degree$numsites, xlab= "Number of unique readers visited per carp", main=NULL, cex.lab=1.5, cex.axis=1.5, breaks=3, right=FALSE)
 
 Readers<-unique(combined_sites$site)
 reader.degree<-data.frame(Readers, numcarp=rep(NA, length(Readers)))
 for(i in 1:length(Readers)){
   reader.degree$numcarp[i]<-length(unique(combined_sites$PIT[which(combined_sites$site==Readers[i])]))
 }
-hist(reader.degree$numcarp, xlab="Number of carp caotured by each reader", main=NULL, cex.lab=1.5, cex.axis=1.5)
+hist(reader.degree$numcarp, xlab="Number of unique carp detected by each reader", main=NULL, cex.lab=1.5, cex.axis=1.5, breaks=50)
 
 ```
 
@@ -131,6 +131,7 @@ plot(bi, layout=layout.fruchterman.reingold, vertex.label=NA)
 V(bi)$type #two types of node (carp vs. site)
 V(bi)$name #name of node
 
+
 plot(bi, layout = layout_as_bipartite,
      vertex.color=c("green","cyan")[V(bi)$type+1], vertex.label=NA)
 pr<-bipartite.projection(bi) 
@@ -170,7 +171,7 @@ test_sub<- combined_sites %>% filter(DATETIME >= as.POSIXct("2018-08-22 12:00:00
 #Create a list of edgelists
 #are indviduals captured within the same sampling day? if so, record edgelist
 
-edgelist<-list()
+time_list <-list(el=NULL, obs_degree=NULL, mean_degree=NULL)
 for(i in 1:num_days){
   sub_combined<-combined_sites %>% filter(DATETIME >= as.POSIXct(start_date+ (i-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + i*86400, tz="CDT"))
   # print(sub_combined)
@@ -178,10 +179,25 @@ for(i in 1:num_days){
   
   if(length(sub_ID)>1)
   {
-     edgelist[[i]]<-data.frame(PIT=sub_combined$PIT, Location=sub_combined$site)
+     edgelist <-data.frame(PIT=sub_combined$PIT, Reader=sub_combined$site)
+     time_list$el[[i]]<-edgelist
+     A <- spMatrix(nrow=length(unique(edgelist$PIT)),
+        ncol=length(unique(edgelist$Reader)),
+        i = as.numeric(factor(edgelist$PIT)),
+        j = as.numeric(factor(edgelist$Reader)),
+        x = rep(1, length(as.numeric(edgelist$PIT))) )
+        row.names(A) <- levels(factor(edgelist$PIT))
+        colnames(A) <- levels(factor(edgelist$Reader))
+      bi<-graph.incidence(A, mode="all", weighted=NULL) #undirected, named graph that is bipartite
+      pr<-bipartite.projection(bi) 
+      time_list$obs_degree[[i]]<-igraph::degree(pr$proj1)
+      time_list$mean_degree[[i]]<-mean(time_list$obs_degree[[i]])
+
   }
 }
 
-
+time_list$mean_degree
+time_list$mean_degree[is.na(time_list$mean_degree)] <- 0
+plot(1:length(time_list$mean_degree), time_list$mean_degree, type="l", xlab= "Sampling day", ylab= "Mean degree")
 ```
 
