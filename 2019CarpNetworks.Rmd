@@ -41,7 +41,7 @@ pit_capture<- select(pit_capture, c(Lake, PIT, Length, Sex))
 pit_capture$PIT<-as.character(pit_capture$PIT)
 head(pit_capture)
 
-#Boatramp site
+#Boatramp site  
 # boatramp<-read.csv("Boatramp_Progress.csv", stringsAsFactors = FALSE)
 boatramp2<-read.table("Boat_ramp_inprogress.log", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"))
 boatramp2<-select(boatramp2, c(Date, Time, PIT, Antenna))
@@ -105,6 +105,7 @@ Identify number of unique visitors per day and whether carp are being detected b
 * Most fish are detected by three readers. A few are detected by all four readers (A1-A4)
 * For a given sampling day, most fish are not detected by 3+ readers
 * A4 is the least visited reader so far
+* Lost the ability to detect PIT tags on boat ramp antennas from ~ noon on 8/6/19 to morning of 8/7/19
 
 
 ```{r}
@@ -120,7 +121,7 @@ dates<-unique(merged_br$DATETIME) #how many dates of observation in dataset?
 (max_date<-max(dates))
 
 start_date<-as.POSIXct("2019-07-24 12:00:00 CDT")
-end_date<-as.POSIXct("2019-08-06 12:00:00 CDT")
+end_date<-as.POSIXct("2019-08-11 12:00:00 CDT")
 
 num_days<-as.numeric(end_date-start_date)
 sampling_df <-data.frame(day=1:num_days, uniqueID=rep(NA, num_days))
@@ -207,7 +208,7 @@ dates<-unique(merged_crown$DATETIME) #how many dates of observation in dataset?
 (max_date<-max(dates))
 
 start_date<-as.POSIXct("2019-07-24 12:00:00 CDT")
-end_date<-as.POSIXct("2019-08-06 12:00:00 CDT")
+end_date<-as.POSIXct("2019-08-08 12:00:00 CDT")
 
 num_days<-as.numeric(end_date-start_date)
 sampling_df <-data.frame(day=1:num_days, uniqueID=rep(NA, num_days))
@@ -322,8 +323,7 @@ plotweb(as.matrix(A), text.rot=90, labsize=1, low.lablength = 6, text.low.col="b
 
 ## Are fish visiting multiple sites?
 
-* Fish are visiting multiple sites, primarily BR and C
-* Only one fish ("497581") connects L to BR & C; not in capture data
+* Some fish are visiting both BR and C
 
 ```{r}
 #Combine observations across sites
