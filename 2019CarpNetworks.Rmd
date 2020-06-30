@@ -1,7 +1,7 @@
 ---
 title: "2019 Carp Networks"
 author: "Lauren White"
-date: "8/7/2019"
+date: "1/21/2020"
 output: html_document
 ---
 
@@ -11,18 +11,18 @@ knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning = FALSE, cache=TRUE)
 
 
 ## Load libraries, load data, clean data
-In `"Parley_Halsteads_PIT.csv"`:
 
-* there are still several `PIT` IDs that are only five digits (mostly starting with "38")
-* `Full.PIT` has been saved in scientific notation in the csv file, so last few digits are lost, even if I try to read in that column as characters
+Parley Lake:
 
-Possibly because of the reasons above (or different species or prior captures?), PIT IDs of fish at lotus site do not match any of the recent captures.
+* Boat Ramp
+* Boat Ramp II
+* Crown
 
-Unique visitors:
+Halstead's Bay:
 
-* BR= 46
-* C= 41
-* L= 5
+* Cardinal Cove
+* Trillium
+* Trillium II
 
 ```{r}
 library(dplyr)
@@ -36,65 +36,191 @@ library(ggplot2)
 library(gganimate)
 
 #Capture data: refromat capture date as POISXct; retain PIT#, species, and capture date
-pit_capture <-read.csv("Parley_Halsteads_PIT.csv", stringsAsFactors = FALSE, colClasses = "character")
+pit_capture <-read.csv("test_2019_01_21.csv", stringsAsFactors = FALSE, colClasses = "character")
 pit_capture<- select(pit_capture, c(Lake, PIT, Length, Sex))
 pit_capture$PIT<-as.character(pit_capture$PIT)
 head(pit_capture)
+length(unique(pit_capture$PIT))
 
-#Boatramp site  
-# boatramp<-read.csv("Boatramp_Progress.csv", stringsAsFactors = FALSE)
-boatramp2<-read.table("Boat_ramp_inprogress.log", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"))
+# pit_capture <-read.csv("Parley_Halsteads_PITdata_p1.csv", stringsAsFactors = FALSE, colClasses = "character")
+# pit_capture<- select(pit_capture, c(Lake, X.3, Length, Sex))
+# colnames(pit_capture)[colnames(pit_capture)=="X.3"] <- "PIT"
+# pit_capture$PIT<-str_sub(pit_capture$PIT, 10, 15)
+# head(pit_capture)
+# length(unique(pit_capture$PIT))
+# 
+# 
+# pit_capture <-read.csv("Parley_Halsteads_PITdata_p2.csv", stringsAsFactors = FALSE, colClasses = "character")
+# pit_capture<- select(pit_capture, c(Lake, PIT, Length, Sex))
+# pit_capture$PIT<-as.character(pit_capture$PIT)
+# head(pit_capture)
+# length(unique(pit_capture$PIT))
+
+
+#Boat Ramp Site  
+
+boatramp<-read.table("Boat_ramp_complete.log", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"))
+boatramp<-select(boatramp, c(Date, Time, PIT, Antenna))
+
+boatramp$DATETIME<- as.POSIXct(paste(boatramp$Date,boatramp$Time), format='%Y-%m-%d %H:%M:%S', tz="CDT") #Reformat as POSIXct
+boatramp<-boatramp[-which(is.na(boatramp$DATETIME)),] #remove NA values
+boatramp$PIT<-as.character(boatramp$PIT) #toString(boatramp$PIT)
+boatramp$PIT<-str_sub(boatramp$PIT, 11, 16)
+boatramp$PIT[boatramp$PIT==""] <- NA
+boatramp<-boatramp[-which(is.na(boatramp$PIT)),]
+boatramp<-boatramp[-which(boatramp$PIT=="390146"),] #This PIT ID has a 2018 read (prior to data collection start)
+boatramp$Site<-"B"
+# write.csv( boatramp, "cleaned_boatramp.csv")
+
+merged_br<- merge(boatramp, pit_capture,  by="PIT")
+head(merged_br)
+
+length(unique(boatramp$PIT))
+length(unique(merged_br$PIT))
+unique(boatramp$PIT)
+unique(boatramp$PIT) %in% pit_capture$PIT
+
+#Boat Ramp II Site
+boatramp2<-read.table("boat_ramp_II_complete.csv", header=FALSE, sep="", fill=TRUE, col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"))
+boatramp2<-boatramp2[-which(is.na(boatramp2$PIT)),]
+boatramp2<-boatramp2[-which(boatramp2$D!="D"),]
+boatramp2<-boatramp2[-which(boatramp2$Antenna!="A4"),]
+
 boatramp2<-select(boatramp2, c(Date, Time, PIT, Antenna))
-
-boatramp2$DATETIME<- as.POSIXct(paste(boatramp2$Date,boatramp2$Time), format='%Y-%m-%d %H:%M:%S', tz="CDT") #Reformat as POSIXct
-boatramp2<-boatramp2[-which(is.na(boatramp2$DATETIME)),] #remove NA values
+test<-paste(boatramp2$Date,boatramp2$Time)
+boatramp2$DATETIME<- as.POSIXct(test, format='%Y-%m-%d %H:%M:%S', tz="CDT") #Reformat as POSIXct
+# boatramp2<-boatramp2[-which(is.na(boatramp2$DATETIME)),] #remove NA values
+boatramp2<-boatramp2[-which(date(boatramp2$DATETIME)<"2019-09-01 12:00:00 CDT"),]
 boatramp2$PIT<-as.character(boatramp2$PIT) #toString(boatramp2$PIT)
 boatramp2$PIT<-str_sub(boatramp2$PIT, 11, 16)
 boatramp2$PIT[boatramp2$PIT==""] <- NA
-boatramp2<-boatramp2[-which(is.na(boatramp2$PIT)),]
-boatramp2$Site<-"B"
+boatramp2<-na.omit(boatramp2)
+# which(boatramp2$PIT=="49768")
+# boatramp2<-boatramp2[-which(grepl("[[:alpha:]]", boatramp2$PIT)),]
+# which(grepl("49768", boatramp2$PIT))
+which(row.names(boatramp2)=="6682")
+boatramp2<-boatramp2[-6624,]
+boatramp2$Site<-"B2"
+# boatramp2 <- boatramp2 [order(boatramp2$PIT),]
+# write.csv( boatramp2, "cleaned_boatramp2.csv")
 
-merged_br<- merge(boatramp2, pit_capture,  by="PIT")
-head(merged_br)
+# merged_br2<- merge(boatramp2, pit_capture,  by="PIT")
+merged_br2<-boatramp2
+head(merged_br2)
 
-#Lotus site
-lotus<-read.table("lotus_inprogress.log", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"))
-lotus<-select(lotus, c(Date, Time, PIT, Antenna))
+length(unique(boatramp2$PIT))
+length(unique(merged_br2$PIT))
+unique(boatramp2$PIT)
+unique(boatramp2$PIT) %in% pit_capture$PIT
 
-lotus$DATETIME<- as.POSIXct(paste(lotus$Date,lotus$Time), format='%Y-%m-%d %H:%M:%S', tz="CDT") #Reformat as POSIXct
-lotus<-lotus[-which(is.na(lotus$DATETIME)),] #remove NA values
-lotus$PIT<-as.character(lotus$PIT) #toString(lotus$PIT)
-lotus$PIT<-str_sub(lotus$PIT, 11, 16)
-lotus$PIT[lotus$PIT==""] <- NA
-lotus<-lotus[-which(is.na(lotus$PIT)),]
-lotus$Site<-"L"
-unique(lotus$PIT)
-(length(unique(lotus$PIT))) #how many uniquely tagged carp?
-isTRUE(pit_capture$PIT %in% lotus$PIT) 
-
-# merged_lotus<- merge(lotus, pit_capture,  by="PIT")
-# merged_lotus$Site<-"L"
-# head(merged_lotus)
-
-#Crown site
-crown<-read.table("crown_inprgoress.log", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"))
+#Crown Site
+crown<-read.table("crown_complete.csv", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"), stringsAsFactors = FALSE)
 crown<-select(crown, c(Date, Time, PIT, Antenna))
 
 crown<-crown[-which(is.na(crown$Antenna)),]
+crown<-crown[which(crown$Antenna %in% c("A1", "A2", "A3")),]
+crown$Antenna<-as.character(crown$Antenna)
+
 crown$DATETIME<- as.POSIXct(paste(as.character(crown$Date),as.character(crown$Time)), format='%Y-%m-%d %H:%M:%S', tz="CDT") #Reformat as POSIXct
-# crown<-crown[-which(is.na(crown$DATETIME)),] #remove NA values
+crown<-crown[-which(is.na(crown$DATETIME)),] #remove NA values
 crown$PIT<-as.character(crown$PIT) #toString(crown$PIT)
 crown$PIT<-str_sub(crown$PIT, 11, 16)
 crown$PIT[crown$PIT==""] <- NA
-crown<-crown[-which(is.na(crown$PIT)),]
+# crown<-crown[-which(is.na(crown$PIT)),]
 crown$Site<-"C"
+crown<-crown[which(crown$DATETIME>"2019-01-01 12:00:00 CDT"),]
+crown<-na.omit(crown)
+crown<-crown[-which(grepl("[[:alpha:]]", crown$PIT)),]
+crown<-crown[-which(crown$PIT=="000000"),] #remove a few more suspect IDs
+crown<-crown[-which(crown$PIT=="75241"),]
 
-merged_crown<- merge(crown, pit_capture,  by="PIT")
+# merged_crown<- merge(crown, pit_capture,  by="PIT")
+merged_crown<-crown
 head(merged_crown)
 
-(length(unique(merged_br$PIT))) #how many uniquely tagged carp?
-(length(unique(merged_crown$PIT))) #how many uniquely tagged carp?
+length(unique(crown$PIT))
+length(unique(merged_crown$PIT))
+unique(crown$PIT)
+unique(crown$PIT) %in% pit_capture$PIT
 
+# Halstead's Bay-----------------------------------------------------------------
+#Cardinal Cove Site
+ccove<-read.table("cardinal_complete.csv", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"))
+ccove<-select(ccove, c(Date, Time, PIT, Antenna))
+
+ccove<-ccove[-which(is.na(ccove$Antenna)),]
+ccove$DATETIME<- as.POSIXct(paste(as.character(ccove$Date),as.character(ccove$Time)), format='%Y-%m-%d %H:%M:%S', tz="CDT") #Reformat as POSIXct
+# ccove<-ccove[-which(is.na(ccove$DATETIME)),] #remove NA values
+ccove$PIT<-as.character(ccove$PIT) #toString(ccove$PIT)
+ccove$PIT<-str_sub(ccove$PIT, 11, 16)
+ccove$PIT[ccove$PIT==""] <- NA
+ccove<-ccove[-which(is.na(ccove$PIT)),]
+ccove<-ccove[-which(ccove$PIT=="000000"),] #remove a few more suspect IDs
+ccove$Site<-"CC"
+
+# merged_ccove<- merge(ccove, pit_capture,  by="PIT")
+merged_ccove<-ccove
+head(merged_ccove)
+
+length(unique(ccove$PIT))
+length(unique(merged_ccove$PIT))
+unique(ccove$PIT)
+unique(ccove$PIT) %in% pit_capture$PIT
+
+#Trillium I site
+trillium<-read.table("trillium_complete.csv", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"))
+trillium<-select(trillium, c(Date, Time, PIT, Antenna))
+
+trillium<-trillium[-which(is.na(trillium$Antenna)),]
+trillium$DATETIME<- as.POSIXct(paste(as.character(trillium$Date),as.character(trillium$Time)), format='%Y-%m-%d %H:%M:%S', tz="CDT") #Reformat as POSIXct
+# trillium<-trillium[-which(is.na(trillium$DATETIME)),] #remove NA values
+trillium$PIT<-as.character(trillium$PIT) #toString(trillium$PIT)
+trillium$PIT<-str_sub(trillium$PIT, 11, 16)
+trillium$PIT[trillium$PIT==""] <- NA
+trillium<-trillium[-which(is.na(trillium$PIT)),]
+trillium$Site<-"T"
+
+# merged_trillium<- merge(trillium, pit_capture,  by="PIT")
+merged_trillium<-trillium
+head(merged_trillium)
+
+length(unique(trillium$PIT))
+length(unique(merged_trillium$PIT))
+unique(trillium$PIT)
+unique(trillium$PIT) %in% pit_capture$PIT
+
+#Trillium II site
+trillium2<-read.table("trillium_II_complete.csv", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"))
+trillium2<-select(trillium2, c(Date, Time, PIT, Antenna))
+
+trillium2<-trillium2[-which(is.na(trillium2$Antenna)),]
+trillium2$DATETIME<- as.POSIXct(paste(as.character(trillium2$Date),as.character(trillium2$Time)), format='%Y-%m-%d %H:%M:%S', tz="CDT") #Reformat as POSIXct
+# trillium2<-trillium2[-which(is.na(trillium2$DATETIME)),] #remove NA values
+trillium2$PIT<-as.character(trillium2$PIT) #toString(trillium2$PIT)
+trillium2$PIT<-str_sub(trillium2$PIT, 11, 16)
+trillium2$PIT[trillium2$PIT==""] <- NA
+trillium2<-trillium2[-which(is.na(trillium2$PIT)),]
+trillium2<-trillium2[-which(grepl("[[:alpha:]]", trillium2$PIT)),]
+trillium2$Site<-"T2"
+
+# merged_trillium2<- merge(trillium2, pit_capture,  by="PIT")
+merged_trillium2<-trillium2
+head(merged_trillium2)
+
+length(unique(trillium2$PIT))
+length(unique(merged_trillium2$PIT))
+unique(trillium2$PIT)
+unique(trillium2$PIT) %in% pit_capture$PIT
+
+
+ #how many uniquely tagged carp at each site?
+(length(unique(merged_br$PIT)))
+(length(unique(merged_br2$PIT)))
+(length(unique(merged_crown$PIT))) 
+
+(length(unique(merged_ccove$PIT))) 
+(length(unique(merged_trillium$PIT))) 
+(length(unique(merged_trillium2$PIT))) 
 ```
 
 ## Boat ramp site unique visitors and antennae usage
@@ -102,26 +228,26 @@ head(merged_crown)
 Identify number of unique visitors per day and whether carp are being detected by multiple antennae at given site.
 
 * Detection numbers begin increasing on sampling day seven (start of baiting?)
-* Most fish are detected by three readers. A few are detected by all four readers (A1-A4)
-* For a given sampling day, most fish are not detected by 3+ readers
-* A4 is the least visited reader so far
+* A4 reader discontinued
 * Lost the ability to detect PIT tags on boat ramp antennas from ~ noon on 8/6/19 to morning of 8/7/19
 
 
 ```{r}
-ggplot(data=merged_br, aes(DATETIME, as.factor(PIT), colour=Antenna)) +
-  geom_point(alpha=0.5) +
-  scale_x_datetime(date_breaks="1 day")+
-  xlab("Date")+
-  ylab("Carp PIT ID")+
-  theme(axis.text.x=element_text(angle=90), axis.text=element_text(size=8), axis.title = element_text(size=10))
+# farver:::encode_colour
+
+ggplot(data=merged_br, aes(DATETIME, as.factor(PIT), color=Antenna)) +
+  geom_point(alpha=0.5) # +
+  # # scale_x_datetime(date_breaks="1 day")+
+  # xlab("Date")+
+  # ylab("Carp PIT ID")+
+  # theme(axis.text.x=element_text(angle=90), axis.text=element_text(size=8), axis.title = element_text(size=10))
 
 dates<-unique(merged_br$DATETIME) #how many dates of observation in dataset?
 (min_date<-min(dates))
 (max_date<-max(dates))
 
-start_date<-as.POSIXct("2019-07-24 12:00:00 CDT")
-end_date<-as.POSIXct("2019-08-11 12:00:00 CDT")
+start_date<-as.POSIXct("2019-07-23 12:00:00 CDT")
+end_date<-as.POSIXct("2019-10-29 12:00:00 CDT")
 
 num_days<-as.numeric(end_date-start_date)
 sampling_df <-data.frame(day=1:num_days, uniqueID=rep(NA, num_days))
@@ -185,14 +311,93 @@ visweb(t(A), circles=TRUE,  boxes=FALSE,  labsize=1, circle.max=1.5, text="no", 
 plotweb(as.matrix(A), text.rot=90, labsize=1, low.lablength = 6, text.low.col="black")
 ```
 
+## Boat ramp II site unique visitors and antennae usage
+
+Identify number of unique visitors per day and whether carp are being detected by multiple antennae at given site.
+
+```{r}
+ggplot(data=merged_br2, aes(DATETIME, as.factor(PIT), color=Antenna)) +
+  geom_point(alpha=0.5) +
+  scale_x_datetime(date_breaks="1 day")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text=element_text(size=8), axis.title = element_text(size=10))
+
+dates<-unique(merged_br2$DATETIME) #how many dates of observation in dataset?
+(min_date<-min(dates))
+(max_date<-max(dates))
+
+start_date<-as.POSIXct("2019-09-23 12:00:00 CDT")
+end_date<-as.POSIXct("2019-10-09 12:00:00 CDT")
+
+num_days<-as.numeric(end_date-start_date)
+sampling_df <-data.frame(day=1:num_days, uniqueID=rep(NA, num_days))
+degree_list<-NULL
+
+for(i in 1:num_days){
+  sub_combined<-merged_br2 %>% filter(DATETIME >= as.POSIXct(start_date+ (i-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + i*86400, tz="CDT")) #86400 seconds/24 hours
+  # print(sub_combined)
+  sampling_df$uniqueID[i]<-length(unique(sub_combined$PIT))
+  PITs<-unique(sub_combined$PIT)
+  if(length(PITs)>0){
+  carp.degree<-data.frame(PITs, numsites= rep(NA, length(PITs)))
+      for(j in 1:length(PITs)){
+        carp.degree$numsites[j]<-length(unique(sub_combined$Antenna[which(sub_combined$PIT==PITs[j])]))
+      }
+  degree_list[[i]]<-carp.degree
+  }
+}
+
+
+sampling_df$uniqueID<-as.numeric(sampling_df$uniqueID)
+barplot(uniqueID ~day, data=sampling_df, xlab="Sampling Day", ylab="Number of unique carp")
+
+dt<-rbindlist(degree_list, use.names=TRUE, fill=TRUE, idcol="SamplingDay")
+
+# p<- ggplot(dt, aes(x=numsites)) + geom_histogram(center=0)
+# p + transition_time(SamplingDay) +
+#   labs(title = "Boat Ramp-Sampling Day: {frame_time}")
+
+#Are carp visiting all antennae at BR site (across total sampling period)?
+# PITs<-unique(merged_br2$PIT)
+# carp.degree<-data.frame(PITs, numsites= rep(NA, length(PITs)))
+# for(i in 1:length(PITs)){
+#   carp.degree$numsites[i]<-length(unique(merged_br2$Antenna[which(merged_br2$PIT==PITs[i])]))
+# }
+# 
+# hist(carp.degree$numsites, xlab= "Number of unique antennae visited per carp", main=NULL, cex.lab=1.5, cex.axis=1.5, breaks=seq(min(carp.degree$numsites)-0.5, max(carp.degree$numsites)+0.5, by=1), right=TRUE)
+
+#Looks like all one reader A4? So no point in doing bipartite networks
+#Bipartite network for boat ramp site
+# edgelist<-data.frame(PIT=merged_br2$PIT, Reader=merged_br2$Antenna)
+# 
+# A <- spMatrix(nrow=length(unique(edgelist$PIT)),
+#         ncol=length(unique(edgelist$Reader)),
+#         i = as.numeric(factor(edgelist$PIT)),
+#         j = as.numeric(factor(edgelist$Reader)),
+#         x = rep(1, length(as.numeric(edgelist$PIT))) )
+# row.names(A) <- levels(factor(edgelist$PIT))
+# colnames(A) <- levels(factor(edgelist$Reader))
+# 
+# 
+# 
+# #using carp data
+# bi<-graph.incidence(A, mode="all") #undirected, named graph that is bipartite
+# pr<-bipartite.projection(bi) 
+# #co-membership network of nodes ($proj1), or a network of groups that share members ($proj2)
+# 
+# # get.adjacency(pr$proj1,sparse=FALSE,attr="weight")
+# plot(pr$proj2)
+# 
+# visweb(t(A), circles=TRUE,  boxes=FALSE,  labsize=1, circle.max=1.5, text="no", plotsize= 18)
+# plotweb(as.matrix(A), text.rot=90, labsize=1, low.lablength = 6, text.low.col="black")
+```
 ## Crown site unique visitors and antennae usage
 
 Identify number of unique visitors per day and whether carp are being detected by multiple antennae at given site.
 
 * Detection numbers begin increasing on sampling day seven (start of baiting?) and peak day 11
-* Most carp visit three readers, but none visit all four
-* For a given sampling day, most fish are not detected by 3+ readers
-* Antennae A4 is not visited at all
+* Antennae A4 discontinued
 
 ```{r}
 ggplot(data=merged_crown, aes(DATETIME, as.factor(PIT), colour=Antenna)) +
@@ -208,7 +413,7 @@ dates<-unique(merged_crown$DATETIME) #how many dates of observation in dataset?
 (max_date<-max(dates))
 
 start_date<-as.POSIXct("2019-07-24 12:00:00 CDT")
-end_date<-as.POSIXct("2019-08-08 12:00:00 CDT")
+end_date<-as.POSIXct("2019-10-21 12:00:00 CDT")
 
 num_days<-as.numeric(end_date-start_date)
 sampling_df <-data.frame(day=1:num_days, uniqueID=rep(NA, num_days))
@@ -235,7 +440,7 @@ barplot(uniqueID ~day, data=sampling_df, xlab="Sampling Day", ylab="Number of un
 dt<-rbindlist(degree_list, use.names=TRUE, fill=TRUE, idcol="SamplingDay")
 
 p<- ggplot(dt, aes(x=numsites)) + geom_histogram()
-p + transition_time(SamplingDay) +
+p + transition_time(SamplingDay) + xlab("Number of antennae visited")+
   labs(title = "Crown Site-Sampling Day: {frame_time}")
 
 #Are carp visiting all antennae?
@@ -267,42 +472,68 @@ plotweb(as.matrix(A), text.rot=90, labsize=1, low.lablength = 6, text.low.col="b
 
 ```
 
-## Lotus site unique visitors and antennae usage
 
-* Max two unique visitors per day unbaited
-* Most fish visit only one antenna; one fish visited three
+
+## Cardinal cove site unique visitors and antennae usage
+
+Identify number of unique visitors per day and whether carp are being detected by multiple antennae at given site.
+
 
 ```{r}
-dates<-unique(lotus$DATETIME) #how many dates of observation in dataset?
+ggplot(data=merged_ccove, aes(DATETIME, as.factor(PIT), colour=Antenna)) +
+  geom_point(alpha=0.5) +
+  scale_x_datetime(date_breaks="1 day")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text=element_text(size=8), axis.title = element_text(size=10))
+
+dates<-unique(merged_ccove$DATETIME) #how many dates of observation in dataset?
 (min_date<-min(dates))
 (max_date<-max(dates))
 
-start_date<-as.POSIXct("2019-07-30 12:00:00 CDT")
-end_date<-as.POSIXct("2019-08-05 12:00:00 CDT")
+start_date<-as.POSIXct("2019-08-16 12:00:00 CDT")
+end_date<-as.POSIXct("2019-10-07 12:00:00 CDT")
 
 num_days<-as.numeric(end_date-start_date)
 sampling_df <-data.frame(day=1:num_days, uniqueID=rep(NA, num_days))
+degree_list<-NULL
 
 for(i in 1:num_days){
-  sub_combined<-lotus %>% filter(DATETIME >= as.POSIXct(start_date+ (i-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + i*86400, tz="CDT")) #86400 seconds/24 hours
+  sub_combined<-merged_ccove %>% filter(DATETIME >= as.POSIXct(start_date+ (i-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + i*86400, tz="CDT")) #86400 seconds/24 hours
+  # print(sub_combined)
   sampling_df$uniqueID[i]<-length(unique(sub_combined$PIT))
+  PITs<-unique(sub_combined$PIT)
+  if(length(PITs)>0){
+  carp.degree<-data.frame(PITs, numsites= rep(NA, length(PITs)))
+      for(j in 1:length(PITs)){
+        carp.degree$numsites[j]<-length(unique(sub_combined$Antenna[which(sub_combined$PIT==PITs[j])]))
+      }
+  degree_list[[i]]<-carp.degree
+  }
 }
+
 
 sampling_df$uniqueID<-as.numeric(sampling_df$uniqueID)
 barplot(uniqueID ~day, data=sampling_df, xlab="Sampling Day", ylab="Number of unique carp")
 
-#Are carp visiting all antennae?
-PITs<-unique(lotus$PIT)
+dt<-rbindlist(degree_list, use.names=TRUE, fill=TRUE, idcol="SamplingDay")
+
+p<- ggplot(dt, aes(x=numsites)) + geom_histogram(center=0)
+p + transition_time(SamplingDay) + xlab("Number of antennae visited")+
+  labs(title = "Cardinal Cove-Sampling Day: {frame_time}")
+
+#Are carp visiting all antennae at BR site (across total sampling period)?
+PITs<-unique(merged_ccove$PIT)
 carp.degree<-data.frame(PITs, numsites= rep(NA, length(PITs)))
 for(i in 1:length(PITs)){
-  carp.degree$numsites[i]<-length(unique(lotus$Antenna[which(lotus$PIT==PITs[i])]))
+  carp.degree$numsites[i]<-length(unique(merged_ccove$Antenna[which(merged_ccove$PIT==PITs[i])]))
 }
 
 hist(carp.degree$numsites, xlab= "Number of unique antennae visited per carp", main=NULL, cex.lab=1.5, cex.axis=1.5, breaks=seq(min(carp.degree$numsites)-0.5, max(carp.degree$numsites)+0.5, by=1), right=TRUE)
 
-#Bipartite network
-edgelist<-data.frame(PIT=lotus$PIT, Reader=lotus$Antenna)
-library('Matrix')
+#Bipartite network for boat ramp site
+edgelist<-data.frame(PIT=merged_ccove$PIT, Reader=merged_ccove$Antenna)
+
 A <- spMatrix(nrow=length(unique(edgelist$PIT)),
         ncol=length(unique(edgelist$Reader)),
         i = as.numeric(factor(edgelist$PIT)),
@@ -311,14 +542,182 @@ A <- spMatrix(nrow=length(unique(edgelist$PIT)),
 row.names(A) <- levels(factor(edgelist$PIT))
 colnames(A) <- levels(factor(edgelist$Reader))
 
+
+
+#using carp data
 bi<-graph.incidence(A, mode="all") #undirected, named graph that is bipartite
 pr<-bipartite.projection(bi) 
 #co-membership network of nodes ($proj1), or a network of groups that share members ($proj2)
 
+# get.adjacency(pr$proj1,sparse=FALSE,attr="weight")
 plot(pr$proj2)
-visweb(t(A), circles=TRUE,  boxes=FALSE,  labsize=1, circle.max=1.5, text="no", plotsize= 5)
-plotweb(as.matrix(A), text.rot=90, labsize=1, low.lablength = 6, text.low.col="black")
 
+visweb(t(A), circles=TRUE,  boxes=FALSE,  labsize=1, circle.max=1.5, text="no", plotsize= 18)
+plotweb(as.matrix(A), text.rot=90, labsize=1, low.lablength = 6, text.low.col="black")
+```
+
+
+## Trillium site unique visitors and antennae usage
+
+Identify number of unique visitors per day and whether carp are being detected by multiple antennae at given site.
+
+
+```{r}
+ggplot(data=merged_trillium, aes(DATETIME, as.factor(PIT), colour=Antenna)) +
+  geom_point(alpha=0.5) +
+  scale_x_datetime(date_breaks="1 day")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text=element_text(size=8), axis.title = element_text(size=10))
+
+dates<-unique(merged_trillium$DATETIME) #how many dates of observation in dataset?
+(min_date<-min(dates))
+(max_date<-max(dates))
+
+start_date<-as.POSIXct("2019-08-15 12:00:00 CDT")
+end_date<-as.POSIXct("2019-10-12 12:00:00 CDT")
+
+num_days<-as.numeric(end_date-start_date)
+sampling_df <-data.frame(day=1:num_days, uniqueID=rep(NA, num_days))
+degree_list<-NULL
+
+for(i in 1:num_days){
+  sub_combined<-merged_trillium %>% filter(DATETIME >= as.POSIXct(start_date+ (i-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + i*86400, tz="CDT")) #86400 seconds/24 hours
+  # print(sub_combined)
+  sampling_df$uniqueID[i]<-length(unique(sub_combined$PIT))
+  PITs<-unique(sub_combined$PIT)
+  if(length(PITs)>0){
+  carp.degree<-data.frame(PITs, numsites= rep(NA, length(PITs)))
+      for(j in 1:length(PITs)){
+        carp.degree$numsites[j]<-length(unique(sub_combined$Antenna[which(sub_combined$PIT==PITs[j])]))
+      }
+  degree_list[[i]]<-carp.degree
+  }
+}
+
+
+sampling_df$uniqueID<-as.numeric(sampling_df$uniqueID)
+barplot(uniqueID ~day, data=sampling_df, xlab="Sampling Day", ylab="Number of unique carp")
+
+dt<-rbindlist(degree_list, use.names=TRUE, fill=TRUE, idcol="SamplingDay")
+
+p<- ggplot(dt, aes(x=numsites)) + geom_histogram(center=0)
+p + transition_time(SamplingDay) + xlab("Number of antennae visited")+
+  labs(title = "Trillium-Sampling Day: {frame_time}")
+
+#Are carp visiting all antennae at BR site (across total sampling period)?
+PITs<-unique(merged_trillium$PIT)
+carp.degree<-data.frame(PITs, numsites= rep(NA, length(PITs)))
+for(i in 1:length(PITs)){
+  carp.degree$numsites[i]<-length(unique(merged_trillium$Antenna[which(merged_trillium$PIT==PITs[i])]))
+}
+
+hist(carp.degree$numsites, xlab= "Number of unique antennae visited per carp", main=NULL, cex.lab=1.5, cex.axis=1.5, breaks=seq(min(carp.degree$numsites)-0.5, max(carp.degree$numsites)+0.5, by=1), right=TRUE)
+
+#Bipartite network for boat ramp site
+edgelist<-data.frame(PIT=merged_trillium$PIT, Reader=merged_trillium$Antenna)
+
+A <- spMatrix(nrow=length(unique(edgelist$PIT)),
+        ncol=length(unique(edgelist$Reader)),
+        i = as.numeric(factor(edgelist$PIT)),
+        j = as.numeric(factor(edgelist$Reader)),
+        x = rep(1, length(as.numeric(edgelist$PIT))) )
+row.names(A) <- levels(factor(edgelist$PIT))
+colnames(A) <- levels(factor(edgelist$Reader))
+
+
+
+#using carp data
+bi<-graph.incidence(A, mode="all") #undirected, named graph that is bipartite
+pr<-bipartite.projection(bi) 
+#co-membership network of nodes ($proj1), or a network of groups that share members ($proj2)
+
+# get.adjacency(pr$proj1,sparse=FALSE,attr="weight")
+plot(pr$proj2)
+
+# visweb(t(A), circles=TRUE,  boxes=FALSE,  labsize=1, circle.max=1.5, text="no", plotsize= 18)
+plotweb(as.matrix(A), text.rot=90, labsize=1, low.lablength = 6, text.low.col="black")
+```
+## Trillium II site unique visitors and antennae usage
+
+Identify number of unique visitors per day and whether carp are being detected by multiple antennae at given site.
+
+
+```{r}
+ggplot(data=merged_trillium2, aes(DATETIME, as.factor(PIT), colour=Antenna)) +
+  geom_point(alpha=0.5) +
+  scale_x_datetime(date_breaks="1 day")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text=element_text(size=8), axis.title = element_text(size=10))
+
+dates<-unique(merged_trillium2$DATETIME) #how many dates of observation in dataset?
+(min_date<-min(dates))
+(max_date<-max(dates))
+
+start_date<-as.POSIXct("2019-08-23 12:00:00 CDT")
+end_date<-as.POSIXct("2019-10-18 12:00:00 CDT")
+
+num_days<-as.numeric(end_date-start_date)
+sampling_df <-data.frame(day=1:num_days, uniqueID=rep(NA, num_days))
+degree_list<-NULL
+
+for(i in 1:num_days){
+  sub_combined<-merged_trillium2 %>% filter(DATETIME >= as.POSIXct(start_date+ (i-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + i*86400, tz="CDT")) #86400 seconds/24 hours
+  # print(sub_combined)
+  sampling_df$uniqueID[i]<-length(unique(sub_combined$PIT))
+  PITs<-unique(sub_combined$PIT)
+  if(length(PITs)>0){
+  carp.degree<-data.frame(PITs, numsites= rep(NA, length(PITs)))
+      for(j in 1:length(PITs)){
+        carp.degree$numsites[j]<-length(unique(sub_combined$Antenna[which(sub_combined$PIT==PITs[j])]))
+      }
+  degree_list[[i]]<-carp.degree
+  }
+}
+
+
+sampling_df$uniqueID<-as.numeric(sampling_df$uniqueID)
+barplot(uniqueID ~day, data=sampling_df, xlab="Sampling Day", ylab="Number of unique carp")
+
+dt<-rbindlist(degree_list, use.names=TRUE, fill=TRUE, idcol="SamplingDay")
+
+# p<- ggplot(dt, aes(x=numsites)) + geom_histogram(center=0)
+# p + transition_time(SamplingDay) + xlab("Number of antennae visited")+
+#   labs(title = "Trillium-Sampling Day: {frame_time}")
+# 
+# #Are carp visiting all antennae at BR site (across total sampling period)?
+# PITs<-unique(merged_trillium2$PIT)
+# carp.degree<-data.frame(PITs, numsites= rep(NA, length(PITs)))
+# for(i in 1:length(PITs)){
+#   carp.degree$numsites[i]<-length(unique(merged_trillium2$Antenna[which(merged_trillium2$PIT==PITs[i])]))
+# }
+# 
+# hist(carp.degree$numsites, xlab= "Number of unique antennae visited per carp", main=NULL, cex.lab=1.5, cex.axis=1.5, breaks=seq(min(carp.degree$numsites)-0.5, max(carp.degree$numsites)+0.5, by=1), right=TRUE)
+# 
+# #Bipartite network for boat ramp site
+# edgelist<-data.frame(PIT=merged_trillium2$PIT, Reader=merged_trillium2$Antenna)
+# 
+# A <- spMatrix(nrow=length(unique(edgelist$PIT)),
+#         ncol=length(unique(edgelist$Reader)),
+#         i = as.numeric(factor(edgelist$PIT)),
+#         j = as.numeric(factor(edgelist$Reader)),
+#         x = rep(1, length(as.numeric(edgelist$PIT))) )
+# row.names(A) <- levels(factor(edgelist$PIT))
+# colnames(A) <- levels(factor(edgelist$Reader))
+# 
+# 
+# 
+# #using carp data
+# bi<-graph.incidence(A, mode="all") #undirected, named graph that is bipartite
+# pr<-bipartite.projection(bi) 
+# #co-membership network of nodes ($proj1), or a network of groups that share members ($proj2)
+# 
+# # get.adjacency(pr$proj1,sparse=FALSE,attr="weight")
+# plot(pr$proj2)
+# 
+# # visweb(t(A), circles=TRUE,  boxes=FALSE,  labsize=1, circle.max=1.5, text="no", plotsize= 18)
+# plotweb(as.matrix(A), text.rot=90, labsize=1, low.lablength = 6, text.low.col="black")
 ```
 
 ## Are fish visiting multiple sites?
@@ -327,7 +726,7 @@ plotweb(as.matrix(A), text.rot=90, labsize=1, low.lablength = 6, text.low.col="b
 
 ```{r}
 #Combine observations across sites
-combined_sites <- rbind(merged_br, merged_crown) 
+combined_sites <- rbind(merged_br, merged_br2, merged_crown, merged_ccove, merged_trillium, merged_trillium2) 
 head(combined_sites)
 
 #Bipartite network for boat ramp site
@@ -355,12 +754,19 @@ plot(pr$proj2)
 library('bipartite')
 # visweb(t(A), prednames=TRUE, preynames=TRUE, labsize = 1)
 # visweb(t(A), circles=TRUE,  boxes=FALSE,  labsize=1, circle.max=1.5, text="no", plotsize= 15)
-plotweb(as.matrix(A), text.rot=90, labsize=1, low.lablength = 6, text.low.col="black")
+plotweb(as.matrix(A), text.rot=90) #, labsize=1, low.lablength = 6, text.low.col="black")
 
-unique(lotus$PIT[which(lotus$PIT %in% boatramp2$PIT)])
-unique(lotus$PIT[which(lotus$PIT %in% crown$PIT)])
-unique(crown$PIT[which(crown$PIT %in% boatramp2$PIT)])
 
-"497581" %in% pit_capture$PIT
+unique(merged_crown$PIT[which(merged_crown$PIT %in% merged_trillium$PIT)])
+unique(merged_crown$PIT[which(merged_crown$PIT %in% merged_trillium2$PIT)])
+ID497865<-combined_sites[which(combined_sites$PIT=="497865"),]
+ID497865<-ID497865[order(ID497865$DATETIME),]
+
+ggplot(data=ID497865, aes(DATETIME, as.factor(Site))) +
+  geom_point(alpha=0.5) +
+  scale_x_datetime(date_breaks="1 day")+
+  xlab("Date")+
+  ylab("Site")+
+  theme(axis.text.x=element_text(angle=90), axis.text=element_text(size=8), axis.title = element_text(size=10))
 
 ```
