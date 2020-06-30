@@ -1,0 +1,367 @@
+---
+title: "BoatRampNetworks"
+author: "Lauren White"
+date: "3/23/2020"
+output: html_document
+---
+More network analysis for Boatramp site. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(stringr)
+library(lubridate)
+library(Matrix)
+library(igraph)
+library(bipartite)
+library(data.table)
+library(ggplot2)
+library(gganimate)
+```
+
+### Load PIT Tag capture and site-specific data for Parley Lake sites
+
+```{r, echo=FALSE, cache=TRUE}
+#Capture data: refromat capture date as POISXct; retain PIT#, species, and capture date
+library(dplyr)
+library(stringr)
+
+pit_capture <-read.csv("test_2019_01_21.csv", stringsAsFactors = FALSE, colClasses = "character")
+pit_capture<- select(pit_capture, c(Lake, PIT, Length, Sex))
+pit_capture$PIT<-as.character(pit_capture$PIT)
+
+#Boat Ramp Site  
+
+boatramp<-read.table("Boat_ramp_complete.log", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"))
+boatramp<-select(boatramp, c(Date, Time, PIT, Antenna))
+
+boatramp$DATETIME<- as.POSIXct(paste(boatramp$Date,boatramp$Time), format='%Y-%m-%d %H:%M:%S', tz="CDT") #Reformat as POSIXct
+boatramp<-boatramp[-which(is.na(boatramp$DATETIME)),] #remove NA values
+boatramp$PIT<-as.character(boatramp$PIT) #toString(boatramp$PIT)
+boatramp$PIT<-str_sub(boatramp$PIT, 11, 16)
+boatramp$PIT[boatramp$PIT==""] <- NA
+boatramp<-boatramp[-which(is.na(boatramp$PIT)),]
+boatramp<-boatramp[-which(boatramp$PIT=="390146"),] #This PIT ID has a 2018 read (prior to data collection start)
+boatramp$Site<-"B"
+# write.csv( boatramp, "cleaned_boatramp.csv")
+
+merged_br<- merge(boatramp, pit_capture,  by="PIT")
+
+#Boat Ramp II Site
+boatramp2<-read.table("boat_ramp_II_complete.csv", header=FALSE, sep="", fill=TRUE, col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"))
+boatramp2<-boatramp2[-which(is.na(boatramp2$PIT)),]
+boatramp2<-boatramp2[-which(boatramp2$D!="D"),]
+boatramp2<-boatramp2[-which(boatramp2$Antenna!="A4"),]
+
+boatramp2<-select(boatramp2, c(Date, Time, PIT, Antenna))
+test<-paste(boatramp2$Date,boatramp2$Time)
+boatramp2$DATETIME<- as.POSIXct(test, format='%Y-%m-%d %H:%M:%S', tz="CDT") #Reformat as POSIXct
+boatramp2<-boatramp2[-which(date(boatramp2$DATETIME)<"2019-09-01 12:00:00 CDT"),]
+boatramp2$PIT<-as.character(boatramp2$PIT) #toString(boatramp2$PIT)
+boatramp2$PIT<-str_sub(boatramp2$PIT, 11, 16)
+boatramp2$PIT[boatramp2$PIT==""] <- NA
+boatramp2<-na.omit(boatramp2)
+
+# which(row.names(boatramp2)=="6682")
+boatramp2<-boatramp2[-6624,]
+boatramp2$Site<-"B2"
+
+merged_br2<- merge(boatramp2, pit_capture,  by="PIT")
+
+#Crown Site
+crown<-read.table("crown_complete.csv", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"), stringsAsFactors = FALSE)
+crown<-select(crown, c(Date, Time, PIT, Antenna))
+
+crown<-crown[-which(is.na(crown$Antenna)),]
+crown<-crown[which(crown$Antenna %in% c("A1", "A2", "A3")),]
+crown$Antenna<-as.character(crown$Antenna)
+
+crown$DATETIME<- as.POSIXct(paste(as.character(crown$Date),as.character(crown$Time)), format='%Y-%m-%d %H:%M:%S', tz="CDT") #Reformat as POSIXct
+crown<-crown[-which(is.na(crown$DATETIME)),] #remove NA values
+crown$PIT<-as.character(crown$PIT) #toString(crown$PIT)
+crown$PIT<-str_sub(crown$PIT, 11, 16)
+crown$PIT[crown$PIT==""] <- NA
+# crown<-crown[-which(is.na(crown$PIT)),]
+crown$Site<-"C"
+crown<-crown[which(crown$DATETIME>"2019-01-01 12:00:00 CDT"),]
+crown<-na.omit(crown)
+crown<-crown[-which(grepl("[[:alpha:]]", crown$PIT)),]
+crown<-crown[-which(crown$PIT=="000000"),] #remove a few more suspect IDs
+crown<-crown[-which(crown$PIT=="75241"),]
+
+merged_crown<- merge(crown, pit_capture,  by="PIT")
+```
+
+
+
+### Subdivide Boat Ramp data set based on phases of experiment
+
+Important dates:
+
+* July 23, 2019- start recording
+* July 30, 2019- start baiting with corn 12:15 PM
+* August 16, 2019- net put out first time 3:00 PM
+* August 17, 2019- first capture attempt 
+
+```{r, cache= TRUE}
+min(merged_br$DATETIME)
+max(merged_br$DATETIME)
+
+br_natural<- merged_br %>% filter( DATETIME < as.POSIXct("2019-07-30 12:15:00", tz="CDT"))
+br_corn<- merged_br %>% filter(DATETIME >=as.POSIXct("2019-07-30 12:15:00", tz="CDT") & DATETIME < as.POSIXct("2019-08-16 15:00:00", tz="CDT"))
+br_netting<- merged_br %>% filter(DATETIME > as.POSIXct("2019-08-16 15:00:00", tz="CDT"))
+
+#subdivide other sites by these same date distinctions
+br2_natural<- merged_br2 %>% filter( DATETIME < as.POSIXct("2019-07-30 12:15:00", tz="CDT"))
+br2_corn<- merged_br2 %>% filter(DATETIME >=as.POSIXct("2019-07-30 12:15:00", tz="CDT") & DATETIME < as.POSIXct("2019-08-16 15:00:00", tz="CDT"))
+br2_netting<- merged_br2 %>% filter(DATETIME > as.POSIXct("2019-08-16 15:00:00", tz="CDT"))
+
+crown_natural<- merged_crown %>% filter( DATETIME < as.POSIXct("2019-07-30 12:15:00", tz="CDT"))
+crown_corn<- merged_crown %>% filter(DATETIME >=as.POSIXct("2019-07-30 12:15:00", tz="CDT") & DATETIME < as.POSIXct("2019-08-16 15:00:00", tz="CDT"))
+crown_netting<- merged_crown %>% filter(DATETIME > as.POSIXct("2019-08-16 15:00:00", tz="CDT"))
+
+```
+
+## Superfeeders for each phase of the experiment
+How many days out of the total number of sampling days did fish visit any of the antenna at Boat Ramp?
+
+Define function to calculate number of visits per site
+@param df- dataframe with $PIT ID column
+@param num_days- number of days over which to loop
+@param start_date- day at which to start looop
+@return superfish df
+```{r, cache=TRUE}
+
+calc_nvisit<-function(df,num_days,start_date){
+  superfish<-data.frame(fishID=unique(df$PIT), nvisit=rep(NA,length(unique(df$PIT)))) 
+
+for (i in 1:length(unique(df$PIT))){
+    fishID<-unique(df$PIT)[i]
+    visit_count<-0
+    for (j in 1:num_days){
+        sub_combined<-df %>% filter(DATETIME >= as.POSIXct(start_date+ (j-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + j*86400, tz="CDT")) #86400 seconds/24 hours
+        fishID %in% sub_combined$PIT
+    if(fishID %in% sub_combined$PIT){
+      visit_count<-visit_count+1
+    }
+    }
+    superfish$nvisit[i]<-visit_count
+}
+  return(superfish)
+}
+```
+
+### Natural
+```{r, cache= TRUE}
+
+dates<-unique(br_natural$DATETIME) #how many dates of observation in dataset?
+(min_date<-min(dates))
+(max_date<-max(dates))
+
+start_date<-as.POSIXct("2019-07-23 12:00:00 CDT") #rounded to nearest midday
+end_date<-as.POSIXct("2019-07-26 12:00:00 CDT")
+num_days<-as.numeric(end_date-start_date)
+
+superfish_br<-calc_nvisit(df=br_natural, num_days=num_days, start_date=start_date)
+
+hist(superfish_br$nvisit, xlab="Number of sampling days", main="")
+```
+
+### Corn phase
+```{r, cache= TRUE}
+dates<-unique(br_corn$DATETIME) #how many dates of observation in dataset?
+(min_date<-min(dates))
+(max_date<-max(dates))
+
+start_date<-as.POSIXct("2019-08-01 12:00:00 CDT") #rounded to nearest midday
+end_date<-as.POSIXct("2019-08-16 12:00:00 CDT")
+num_days<-as.numeric(end_date-start_date)
+
+superfish_br<-calc_nvisit(df=br_corn, num_days=num_days, start_date=start_date)
+# superfish_br2<-calc_nvisit(df=br2_corn, num_days=num_days, start_date=start_date) #sampling period does not overlap
+superfish_crown<-calc_nvisit(df=crown_corn, num_days=num_days, start_date=start_date)
+
+hist(superfish_br$nvisit, xlab="Number of sampling days", main="BR Corn")
+hist(superfish_crown$nvisit, xlab="Number of sampling days", main="Crown Corn")
+
+# top20<-round(nrow(superfish)*.2)
+# superfish<-superfish[order(superfish$nvisit, decreasing= TRUE),]
+# top20<-superfish[1:top20,]
+
+combo<-merge(superfish_br, superfish_crown, by="fishID", all.x=TRUE, all.y=TRUE)
+combo[is.na(combo)] <- 0
+
+library(reshape2)
+test<-melt(combo, id.vars="fishID")
+test<-test[order(test$value, decreasing=TRUE),]
+
+combo$total<-combo$nvisit.x+ combo$nvisit.y
+combo<-combo[order(combo$total, decreasing=TRUE),]
+test$fishID <- factor(test$fishID, levels = combo$fishID[order(combo$total, decreasing=TRUE)])
+
+top20<-round(length(levels(test$fishID))*.2)
+cutoff<-levels(test$fishID)[top20]
+ # library
+library(ggplot2)
+ggplot(test, aes(fill=variable, y=value, x=reorder(fishID, -value)))+ 
+    geom_col()+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+    scale_fill_discrete(name = "Site", labels = c("Boat Ramp", "Crown"))+
+    labs(y= "Visits", x = "Carp ID")+
+    geom_vline(xintercept=which(test$fishID == cutoff))
+
+
+```
+
+### Net phase
+```{r, cache= TRUE}
+dates<-unique(br_netting$DATETIME) #how many dates of observation in dataset?
+(min_date<-min(dates))
+(max_date<-max(dates))
+
+start_date<-as.POSIXct("2019-08-16 12:00:00 CDT") #rounded to nearest midday
+end_date<-as.POSIXct("2019-10-29 12:00:00 CDT")
+num_days<-as.numeric(end_date-start_date)
+
+superfish_br<-calc_nvisit(df=br_netting, num_days=num_days, start_date=start_date)
+superfish_br2<-calc_nvisit(df=br2_netting, num_days=num_days, start_date=start_date) #sampling period does not overlap
+superfish_crown<-calc_nvisit(df=crown_netting, num_days=num_days, start_date=start_date)
+
+hist(superfish_br$nvisit, xlab="Number of sampling days", main="BR Netting")
+hist(superfish_br2$nvisit, xlab="Number of sampling days", main="BR2 Netting")
+hist(superfish_crown$nvisit, xlab="Number of sampling days", main="Crown Netting")
+
+# top20<-round(nrow(superfish)*.2)
+# superfish<-superfish[order(superfish$nvisit, decreasing= TRUE),]
+# top20<-superfish[1:top20,]
+
+combo<-merge(superfish_br, superfish_br2, by="fishID", all.x=TRUE, all.y=TRUE)
+combo<-merge(combo, superfish_crown, by="fishID", all.x=TRUE, all.y=TRUE)
+combo[is.na(combo)] <- 0
+
+library(reshape2)
+test<-melt(combo, id.vars="fishID")
+test<-test[order(test$value, decreasing=TRUE),]
+
+combo$total<-combo$nvisit.x+ combo$nvisit.y + combo$nvisit
+combo<-combo[order(combo$total, decreasing=TRUE),]
+test$fishID <- factor(test$fishID, levels = combo$fishID[order(combo$total, decreasing=TRUE)])
+
+top20<-round(length(levels(test$fishID))*.2)
+cutoff<-levels(test$fishID)[top20]
+ # library
+library(ggplot2)
+    
+ggplot(test, aes(fill=variable, y=value, x=as.factor(fishID)))+ 
+    geom_col()+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+    scale_fill_discrete(name = "Site", labels = c("Boat Ramp", "Boat Ramp II", "Crown"))+
+    labs(y= "Visits", x = "Carp ID")+
+  geom_vline(xintercept=which(test$fishID == cutoff))
+```
+
+
+### Hourly network for corn phase
+Treating all antenna as a single site/equivalent
+
+```{r, cache = TRUE}
+dates<-unique(br_corn$DATETIME) #how many dates of observation in dataset?
+(min_date<-min(dates))
+(max_date<-max(dates))
+
+start_date<-as.POSIXct("2019-08-01 12:00:00 CDT") #rounded to nearest midday
+end_date<-as.POSIXct("2019-08-16 12:00:00 CDT")
+num_hours<-as.numeric(end_date-start_date)*24
+
+network_df <-data.frame(day=1:num_hours, nnodes=rep(NA,num_hours), mean_degree=rep(NA, num_hours), transitivity=rep(NA, num_hours), edge_density=rep(NA, num_hours), diameter=rep(NA, num_hours), centralization=rep(NA, num_hours), eigen= rep(NA, num_hours), btwn= rep(NA, num_hours),modularity=rep(NA, num_hours))
+degree_list<-NULL
+```
+
+```{r sampleani, fig.show='animate', fig.width=4, fig.height=4, cache=FALSE, interval=0.75}
+library(tidyr)
+
+for(i in 1:num_hours){
+  sub_combined<-merged_br %>% filter(DATETIME >= as.POSIXct(start_date+ (i-1)*3600, tz="CDT") & DATETIME <= as.POSIXct(start_date + i*3600, tz="CDT")) #3600 seconds/hour
+  # print(sub_combined)
+  
+
+  
+  edgelist<-data.frame(PIT=sub_combined$PIT, Reader=sub_combined$Site)
+  network_df$nnodes[i]<-length(unique(sub_combined$PIT))
+  
+if(nrow(edgelist)>0){
+  A <- spMatrix(nrow=length(unique(edgelist$PIT)),
+          ncol=length(unique(edgelist$Reader)),
+          i = as.numeric(factor(edgelist$PIT)),
+          j = as.numeric(factor(edgelist$Reader)),
+          x = rep(1, length(as.numeric(edgelist$PIT))) )
+  row.names(A) <- levels(factor(edgelist$PIT))
+  colnames(A) <- levels(factor(edgelist$Reader))
+  
+  bi<-graph.incidence(A, mode="all") #undirected, named graph that is bipartite
+  pr<-bipartite.projection(bi) 
+  #co-membership network of nodes ($proj1), or a network of groups that share members ($proj2)
+  plot(pr$proj1, main=paste("Hour =", i))
+  # g<- ggplot(data=sub_combined, aes(DATETIME, as.factor(PIT), color=Antenna)) +
+  # geom_point(alpha=0.5)
+  # print(g)
+  
+  network_df$mean_degree[i]<-mean(degree_distribution(pr$proj1))
+  network_df$transitivity[i]<-transitivity(pr$proj1, "global")
+  network_df$edge_density[i]<-edge_density(pr$proj1, loops=F)
+  network_df$diameter[i]<-diameter(pr$proj1, directed=F, weights=NA)
+  network_df$centralization[i]<-centr_degree(pr$proj1, loops=FALSE, normalized=T)$centralization
+  network_df$eigen[i]<-centr_eigen(pr$proj1, directed=F, normalized=T)$centralization 
+  network_df$btwn[i]<-centr_betw(pr$proj1, directed=F, normalized=T)$centralization
+  network_df$modularity[i]<-modularity(pr$proj1, membership(cluster_walktrap(pr$proj1)))
+  }
+}
+
+head(network_df)
+```
+
+### Hourly networks, but keeping antenna separate
+```{r sampleani2, fig.show='animate', fig.width=4, fig.height=4, cache=FALSE, interval=0.75}
+library(tidyr)
+
+for(i in 1:num_hours){
+  sub_combined<-merged_br %>% filter(DATETIME >= as.POSIXct(start_date+ (i-1)*3600, tz="CDT") & DATETIME <= as.POSIXct(start_date + i*3600, tz="CDT")) #3600 seconds/hour
+  # print(sub_combined)
+  
+
+  
+  edgelist<-data.frame(PIT=sub_combined$PIT, Reader=sub_combined$Antenna)
+  network_df$nnodes[i]<-length(unique(sub_combined$PIT))
+  
+if(nrow(edgelist)>0){
+  A <- spMatrix(nrow=length(unique(edgelist$PIT)),
+          ncol=length(unique(edgelist$Reader)),
+          i = as.numeric(factor(edgelist$PIT)),
+          j = as.numeric(factor(edgelist$Reader)),
+          x = rep(1, length(as.numeric(edgelist$PIT))) )
+  row.names(A) <- levels(factor(edgelist$PIT))
+  colnames(A) <- levels(factor(edgelist$Reader))
+  
+  bi<-graph.incidence(A, mode="all") #undirected, named graph that is bipartite
+  pr<-bipartite.projection(bi) 
+  #co-membership network of nodes ($proj1), or a network of groups that share members ($proj2)
+  plot(pr$proj1, main=paste("Hour =", i))
+  # g<- ggplot(data=sub_combined, aes(DATETIME, as.factor(PIT), color=Antenna)) +
+  # geom_point(alpha=0.5)
+  # print(g)
+  
+  network_df$mean_degree[i]<-mean(degree_distribution(pr$proj1))
+  network_df$transitivity[i]<-transitivity(pr$proj1, "global")
+  network_df$edge_density[i]<-edge_density(pr$proj1, loops=F)
+  network_df$diameter[i]<-diameter(pr$proj1, directed=F, weights=NA)
+  network_df$centralization[i]<-centr_degree(pr$proj1, loops=FALSE, normalized=T)$centralization
+  network_df$eigen[i]<-centr_eigen(pr$proj1, directed=F, normalized=T)$centralization 
+  network_df$btwn[i]<-centr_betw(pr$proj1, directed=F, normalized=T)$centralization
+  network_df$modularity[i]<-modularity(pr$proj1, membership(cluster_walktrap(pr$proj1)))
+  }
+}
+
+head(network_df)
+```
+
+
