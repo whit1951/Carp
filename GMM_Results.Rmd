@@ -1,0 +1,1138 @@
+---
+title: "GMM Results"
+author: "Lauren White"
+date: "6/28/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(dplyr)
+library(stringr)
+library(lubridate)
+library(Matrix)
+library(igraph)
+library(bipartite)
+library(data.table)
+library(ggplot2)
+library(gganimate)
+library(reshape2)
+library(asnipe)
+library(tidyr)
+```
+
+```{r load_and_clean_data, cache=TRUE}
+#load and clean Boat Ramp and College Crown Site data
+pit_capture <-read.csv("test_2019_01_21.csv", stringsAsFactors = FALSE, colClasses = "character")
+pit_capture<- select(pit_capture, c(Lake, PIT, Length, Sex))
+pit_capture$PIT<-as.character(pit_capture$PIT)
+
+#Boat Ramp site  
+
+boatramp<-read.table("Boat_ramp_complete.log", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"))
+boatramp<-select(boatramp, c(Date, Time, PIT, Antenna))
+
+boatramp$DATETIME<- as.POSIXct(paste(boatramp$Date,boatramp$Time), format='%Y-%m-%d %H:%M:%S', tz="CDT") #Reformat as POSIXct
+boatramp<-boatramp[-which(is.na(boatramp$DATETIME)),] #remove NA values
+boatramp$PIT<-as.character(boatramp$PIT) #toString(boatramp$PIT)
+boatramp$PIT<-str_sub(boatramp$PIT, 11, 16)
+boatramp$PIT[boatramp$PIT==""] <- NA
+boatramp<-boatramp[-which(is.na(boatramp$PIT)),]
+boatramp<-boatramp[-which(boatramp$PIT=="390146"),] #This PIT ID has a 2018 read (prior to data collection start)
+boatramp$Site<-"B"
+# write.csv( boatramp, "cleaned_boatramp.csv")
+
+merged_br<- merge(boatramp, pit_capture,  by="PIT")
+
+#Crown Site
+crown<-read.table("crown_complete.csv", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"), stringsAsFactors = FALSE)
+crown<-select(crown, c(Date, Time, PIT, Antenna))
+
+crown<-crown[-which(is.na(crown$Antenna)),]
+crown<-crown[which(crown$Antenna %in% c("A1", "A2", "A3")),]
+crown$Antenna<-as.character(crown$Antenna)
+
+crown$DATETIME<- as.POSIXct(paste(as.character(crown$Date),as.character(crown$Time)), format='%Y-%m-%d %H:%M:%S', tz="CDT") #Reformat as POSIXct
+crown<-crown[-which(is.na(crown$DATETIME)),] #remove NA values
+crown$PIT<-as.character(crown$PIT) #toString(crown$PIT)
+crown$PIT<-str_sub(crown$PIT, 11, 16)
+crown$PIT[crown$PIT==""] <- NA
+# crown<-crown[-which(is.na(crown$PIT)),]
+crown$Site<-"C"
+crown<-crown[which(crown$DATETIME>"2019-01-01 12:00:00 CDT"),]
+crown<-na.omit(crown)
+crown<-crown[-which(grepl("[[:alpha:]]", crown$PIT)),]
+crown<-crown[-which(crown$PIT=="000000"),] #remove a few more suspect IDs
+crown<-crown[-which(crown$PIT=="75241"),]
+
+merged_crown<- merge(crown, pit_capture,  by="PIT")
+```
+
+```{r exp_phases, cache= TRUE}
+#subdivide data based on phases of experiment
+#first day of corn baiting- July 30th, 2019- corn out by 1:30 PM at Crown and 12:15 PM at Boat Ramp
+#first day of net installation- August 16, 2019- 3 PM at Boat Ramp and 4 PM at Crown
+#first day of capture- August 19th
+
+# min(merged_br$DATETIME)
+# max(merged_br$DATETIME)
+
+br_natural<- merged_br %>% filter( DATETIME < as.POSIXct("2019-07-30 12:15:00", tz="CDT"))
+br_corn<- merged_br %>% filter(DATETIME >=as.POSIXct("2019-07-30 12:15:00", tz="CDT") & DATETIME < as.POSIXct("2019-08-16 15:00:00", tz="CDT"))
+br_netting<- merged_br %>% filter(DATETIME > as.POSIXct("2019-08-16 15:00:00", tz="CDT"))
+
+crown_natural<- merged_crown %>% filter( DATETIME < as.POSIXct("2019-07-30 13:30:00", tz="CDT"))
+crown_corn<- merged_crown %>% filter(DATETIME >=as.POSIXct("2019-07-30 13:30:00", tz="CDT") & DATETIME < as.POSIXct("2019-08-16 16:00:00", tz="CDT"))
+crown_netting<- merged_crown %>% filter(DATETIME > as.POSIXct("2019-08-16 16:00:00", tz="CDT"))
+```
+
+```{r func_num_visits, cache= TRUE}
+#' Define function to calculate number of visits per site
+#' @param df- dataframe with $PIT ID column
+#' @param num_days- number of days over which to loop
+#' @param start_date- day at which to start looop
+#' @return superfish df
+calc_nvisit<-function(df,num_days,start_date){
+  superfish<-data.frame(fishID=unique(df$PIT), nvisit=rep(NA,length(unique(df$PIT)))) 
+
+for (i in 1:length(unique(df$PIT))){
+    fishID<-unique(df$PIT)[i]
+    visit_count<-0
+    for (j in 1:num_days){
+        sub_combined<-df %>% filter(DATETIME >= as.POSIXct(start_date+ (j-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + j*86400, tz="CDT")) #86400 seconds/24 hours
+        fishID %in% sub_combined$PIT
+    if(fishID %in% sub_combined$PIT){
+      visit_count<-visit_count+1
+    }
+    }
+    superfish$nvisit[i]<-visit_count
+}
+  return(superfish)
+}
+```
+
+## Methods
+
+### Study Site and Study Species
+The study was conducted from July 23 to October 29, 2019 in a population of carp (*Cyprinus carpio*) in Parley Lake, Laketown Township (44°52'51.8"N 93°43'54.1"W). Carp were captured and PIT tagged across whole lake. Two PIT tag sites were established along the western coast of Parley Lake: Boat Ramp and Crown College (Fig #). The Upper part of Parley Lake, north of Crown College, has more dense aquatic vegetation. The lower part consists of more open water.
+
+This experiment proceeded in these phases: pre-baiting, baiting, and removal. Antennas were set up and activated for data recording at both sites starting July 23, 2019. Baiting began at both sites on July 30, 2019. Nets were installed on August 16, 2019. The first capture attempt occurred on August 19, 2020. Here we conservatively analyze the period between when baiting began and when the first net was installed (July 30-August 16, 2020).
+
+```{sitemap r}
+#fig- map of three sites at Parley Lake
+```
+
+### Data Collection
+In total, 304 carp were captured and PIT tagged in Lake Parley for the 2019 season. PIT tag stations collected data every __ of a second. Each site consisted of three separate antenna positioned 5 m apart (*Fig with diagram of individual site set up*). At the Boat Ramp and Crown College sites, 99 and 107 unique fish were detected respectively. 70 and 75 of these fish were also detected during the baiting phase respectively. 
+
+```{r data_collection_stats}
+length(unique(pit_capture$PIT[which(pit_capture$Lake=="Parley")]))
+length(unique(merged_br$PIT))
+length(unique(merged_crown$PIT))
+length(unique(br_corn$PIT))
+length(unique(crown_corn$PIT))
+```
+
+
+### Social Networks and Data Analysis
+We created social networks using the Gaussian mixture model approach (Psorakis et al., 2012, 2015). Rather than establishing an arbitrary time threshold to detect social associations, this approach identifies high density activity periods in order to determine group associations. These analyses were carried out in the `asnipe` package using the `gmmevents` function to identify temporal group associations from the PIT tag data and the `get_network` function to create a network from the resulting group-by-individual matrix (Farine, 2019).
+
+Here we focused on the two sites that were running simultaneously in July and August of 2019: Boat Ramp and Crown College. For both these sites, the first day of corn baiting took place on July 30, 2019, nets were installed, August 16, 2020, and the first capture attempt took place August 19, 2020. Although antenna within a given site are near each other, we compared GMM analyses were visits were disaggregated by antenna vs. disaggregated by site. We also compared individual sites (Boat Ramp and Crown College) with both sites aggregated together (Lake Parley).
+
+## Results
+
+
+```{r gbi_br, cache=TRUE, include=FALSE, eval=FALSE}
+br_corn<-br_corn[order(br_corn$DATETIME),] #order chronologically
+# br_corn<-br_corn[1:2000,] #limit number of points for analysis
+Time<-vector(mode="integer", length=nrow(br_corn)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(br_corn))
+for(i in 1:nrow(br_corn)){
+  Time[i]<-as.integer(difftime(br_corn$DATETIME[i],br_corn$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(br_corn$DATETIME[i],br_corn$DATETIME[1],units='days'))
+}
+identified_individuals_br<-data.frame(Date=Date, Time=Time, ID=br_corn$PIT, Location=br_corn$Antenna)
+identified_individuals_br$Loc_date <-
+  paste(identified_individuals_br$Location,
+        identified_individuals_br$Date,sep="_")
+head(identified_individuals_br)
+
+global_ids_br <- levels(identified_individuals_br$ID)
+
+# Generate GMM data
+start.time <- Sys.time()
+
+gmm_data_br <- gmmevents(time=identified_individuals_br$Time,
+                      identity=identified_individuals_br$ID,
+                      location=identified_individuals_br$Loc_date,
+                      global_ids=global_ids_br)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Extract output
+gbi_br <- gmm_data_br$gbi
+# gbi_br <- gbi_br[,which(colSums(gbi_br)>0)]
+solo<-which(rowSums(gbi_br)<=1)
+gbi_br<-gbi_br[-solo,]
+events_br <- gmm_data_br$metadata
+events_br <- events_br[-solo,]
+observations_per_event_br <- gmm_data_br$B
+observations_per_event_br<-observations_per_event_br[-solo,]
+
+dim(gbi_br)
+
+# Split up location and date data
+tmp <- strsplit(events_br$Location,"_")
+tmp <- do.call("rbind",tmp)
+events_br$Location <- tmp[,1]
+events_br$Date <- tmp[,2]
+events_br$midpoint<-(events_br$Start-events_br$End)/2+events_br$Start #equivalent to "times" in example
+# times<-events$midpoint
+# names(times)<-1:length(times)
+head(events_br)
+
+saveRDS(gbi_br, file = "gbi_br.RDS") 
+saveRDS(events_br, file = "events_br.RDS") 
+
+```
+
+
+```{r gbi_br_combo, cache=TRUE, include=FALSE, eval=FALSE}
+#Combine across antenna
+br_corn<-br_corn[order(br_corn$DATETIME),] #order chronologically
+# br_corn<-br_corn[1:2000,] #limit number of points for analysis
+Time<-vector(mode="integer", length=nrow(br_corn)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(br_corn))
+for(i in 1:nrow(br_corn)){
+  Time[i]<-as.integer(difftime(br_corn$DATETIME[i],br_corn$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(br_corn$DATETIME[i],br_corn$DATETIME[1],units='days'))
+}
+identified_individuals_br<-data.frame(Date=Date, Time=Time, ID=br_corn$PIT, Location=br_corn$Site)
+identified_individuals_br$Loc_date <-
+  paste(identified_individuals_br$Location,
+        identified_individuals_br$Date,sep="_")
+head(identified_individuals_br)
+
+global_ids_br <- levels(identified_individuals_br$ID)
+
+# Generate GMM data
+start.time <- Sys.time()
+
+gmm_data_br1 <- gmmevents(time=identified_individuals_br$Time,
+                      identity=identified_individuals_br$ID,
+                      location=identified_individuals_br$Loc_date,
+                      global_ids=global_ids_br)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Extract output
+gbi_br1 <- gmm_data_br1$gbi
+# gbi_br <- gbi_br[,which(colSums(gbi_br)>0)]
+solo<-which(rowSums(gbi_br1)<=1)
+gbi_br1<-gbi_br1[-solo,]
+events_br1 <- gmm_data_br1$metadata
+events_br1 <- events_br1[-solo,]
+observations_per_event_br1 <- gmm_data_br1$B
+observations_per_event_br1<-observations_per_event_br1[-solo,]
+
+dim(gbi_br1)
+
+# Split up location and date data
+tmp <- strsplit(events_br1$Location,"_")
+tmp <- do.call("rbind",tmp)
+events_br1$Location <- tmp[,1]
+events_br1$Date <- tmp[,2]
+events_br1$midpoint<-(events_br1$Start-events_br1$End)/2+events_br1$Start #equivalent to "times" in example
+# times<-events$midpoint
+# names(times)<-1:length(times)
+head(events_br1)
+
+saveRDS(gbi_br1, file = "gbi_br1.RDS") 
+saveRDS(events_br1, file = "events_br1.RDS") 
+
+```
+
+```{r gbi_crown, cache=TRUE, include=FALSE, eval=FALSE}
+#Crown site
+crown_corn<-crown_corn[order(crown_corn$DATETIME),] #order chronologically
+# crown_corn<-crown_corn[1:2000,] #limit number of points for analysis
+
+Time<-vector(mode="integer", length=nrow(crown_corn)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(crown_corn))
+for(i in 1:nrow(crown_corn)){
+  Time[i]<-as.integer(difftime(crown_corn$DATETIME[i],crown_corn$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(crown_corn$DATETIME[i],crown_corn$DATETIME[1],units='days'))
+}
+identified_individuals_crown<-data.frame(Date=Date, Time=Time, ID=crown_corn$PIT, Location=crown_corn$Antenna)
+identified_individuals_crown$Loc_date <-
+  paste(identified_individuals_crown$Location,
+        identified_individuals_crown$Date,sep="_")
+head(identified_individuals_crown)
+
+global_ids_crown <- levels(identified_individuals_crown$ID)
+
+# Generate GMM data
+start.time <- Sys.time()
+
+gmm_data_crown <- gmmevents(time=identified_individuals_crown$Time,
+                      identity=identified_individuals_crown$ID,
+                      location=identified_individuals_crown$Loc_date,
+                      global_ids=global_ids_crown)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Extract output
+gbi_crown <- gmm_data_crown$gbi
+solo<-which(rowSums(gbi_crown)<=1)
+gbi_crown<-gbi_crown[-solo,]
+events_crown <- gmm_data_crown$metadata
+events_crown <- events_crown[-solo,]
+observations_per_event_crown <- gmm_data_crown$B
+observations_per_event_crown<-observations_per_event_crown[-solo,]
+dim(gbi_crown)
+
+# Split up location and date data
+tmp <- strsplit(events_crown$Location,"_")
+tmp <- do.call("rbind",tmp)
+events_crown$Location <- tmp[,1]
+events_crown$Date <- tmp[,2]
+events_crown$midpoint<-(events_crown$Start-events_crown$End)/2+events_crown$Start #equivalent to "times" in example
+# times<-events$midpoint
+# names(times)<-1:length(times)
+head(events_crown)
+
+saveRDS(gbi_crown, file = "gbi_crown.RDS") 
+saveRDS(events_crown, file = "events_crown.RDS") 
+
+```
+
+```{r gbi_crown_combo, cache=TRUE, include=FALSE, eval=FALSE}
+#Combine across antenna
+crown_corn<-crown_corn[order(crown_corn$DATETIME),] #order chronologically
+# crown_corn<-crown_corn[1:2000,] #limit number of points for analysis
+Time<-vector(mode="integer", length=nrow(crown_corn)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(crown_corn))
+for(i in 1:nrow(crown_corn)){
+  Time[i]<-as.integer(difftime(crown_corn$DATETIME[i],crown_corn$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(crown_corn$DATETIME[i],crown_corn$DATETIME[1],units='days'))
+}
+identified_individuals_crown<-data.frame(Date=Date, Time=Time, ID=crown_corn$PIT, Location=crown_corn$Site)
+identified_individuals_crown$Loc_date <-
+  paste(identified_individuals_crown$Location,
+        identified_individuals_crown$Date,sep="_")
+head(identified_individuals_crown)
+
+global_ids_crown <- levels(identified_individuals_crown$ID)
+
+# Generate GMM data
+start.time <- Sys.time()
+
+gmm_data_crown1 <- gmmevents(time=identified_individuals_crown$Time,
+                      identity=identified_individuals_crown$ID,
+                      location=identified_individuals_crown$Loc_date,
+                      global_ids=global_ids_crown)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Extract output
+gbi_crown1 <- gmm_data_crown1$gbi
+# gbi_crown <- gbi_crown[,which(colSums(gbi_crown)>0)]
+solo<-which(rowSums(gbi_crown1)<=1)
+gbi_crown1<-gbi_crown1[-solo,]
+events_crown1 <- gmm_data_crown1$metadata
+events_crown1 <- events_crown1[-solo,]
+observations_per_event_crown1 <- gmm_data_crown1$B
+observations_per_event_crown1<-observations_per_event_crown1[-solo,]
+
+dim(gbi_crown1)
+
+# Split up location and date data
+tmp <- strsplit(events_crown1$Location,"_")
+tmp <- do.call("rbind",tmp)
+events_crown1$Location <- tmp[,1]
+events_crown1$Date <- tmp[,2]
+events_crown1$midpoint<-(events_crown1$Start-events_crown1$End)/2+events_crown1$Start #equivalent to "times" in example
+# times<-events$midpoint
+# names(times)<-1:length(times)
+head(events_crown1)
+
+saveRDS(gbi_crown1, file = "gbi_crown1.RDS") 
+saveRDS(events_crown1, file = "events_crown1.RDS") 
+
+```
+
+```{r gbi_parley, cache=TRUE, include=FALSE, eval=FALSE}
+parley<-rbind(br_corn, crown_corn) #merge the boat ramp and crown college sites
+parley<-parley[order(parley$DATETIME),] #order chronologically
+# parley<-parley[1:2000,] #limit number of points for analysis
+Time<-vector(mode="integer", length=nrow(parley)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(parley))
+for(i in 1:nrow(parley)){
+  Time[i]<-as.integer(difftime(parley$DATETIME[i],parley$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(parley$DATETIME[i],parley$DATETIME[1],units='days'))
+}
+identified_individuals_parley<-data.frame(Date=Date, Time=Time, ID=parley$PIT, Location=paste(parley$Site,
+        parley$Antenna ,sep="_"))
+identified_individuals_parley$Loc_date <-
+  paste(identified_individuals_parley$Location,
+        identified_individuals_parley$Date,sep="_")
+head(identified_individuals_parley)
+
+global_ids_parley <- levels(identified_individuals_parley$ID)
+
+# Generate GMM data
+start.time <- Sys.time()
+
+gmm_data_parley <- gmmevents(time=identified_individuals_parley$Time,
+                      identity=identified_individuals_parley$ID,
+                      location=identified_individuals_parley$Loc_date,
+                      global_ids=global_ids_parley)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Extract output
+gbi_parley <- gmm_data_parley$gbi
+# gbi_parley <- gbi_parley[,which(colSums(gbi_parley)>0)]
+solo<-which(rowSums(gbi_parley)<=1)
+gbi_parley<-gbi_parley[-solo,]
+events_parley <- gmm_data_parley$metadata
+events_parley <- events_parley[-solo,]
+observations_per_event_parley <- gmm_data_parley$B
+observations_per_event_parley<-observations_per_event_parley[-solo,]
+
+dim(gbi_parley)
+
+# Split up location and date data
+tmp <- strsplit(events_parley$Location,"_")
+tmp <- do.call("rbind",tmp)
+events_parley$Location <- tmp[,1]
+events_parley$Date <- tmp[,2]
+events_parley$midpoint<-(events_parley$Start-events_parley$End)/2+events_parley$Start #equivalent to "times" in example
+# times<-events$midpoint
+# names(times)<-1:length(times)
+head(events_parley)
+saveRDS(gbi_parley, file = "gbi_parley.RDS") 
+saveRDS(events_parley, file = "events_parley.RDS") 
+
+```
+
+```{r gbi_parley_combo, cache=TRUE, eval= FALSE, include=FALSE}
+parley<-rbind(br_corn, crown_corn) #merge the boat ramp and crown college sites
+parley<-parley[order(parley$DATETIME),] #order chronologically
+# parley<-parley[1000:2000,] #limit number of points for analysis
+Time<-vector(mode="integer", length=nrow(parley)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(parley))
+for(i in 1:nrow(parley)){
+  Time[i]<-as.integer(difftime(parley$DATETIME[i],parley$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(parley$DATETIME[i],parley$DATETIME[1],units='days'))
+}
+
+identified_individuals_parley1<-data.frame(Date=Date, Time=Time, ID=parley$PIT, Location=parley$Site)
+identified_individuals_parley1$Loc_date <-
+  paste(identified_individuals_parley1$Location,
+        identified_individuals_parley1$Date,sep="_")
+head(identified_individuals_parley1)
+
+global_ids_parley1 <- levels(identified_individuals_parley1$ID)
+
+# Generate GMM data
+start.time <- Sys.time()
+
+gmm_data_parley1 <- gmmevents(time=identified_individuals_parley1$Time,
+                      identity=identified_individuals_parley1$ID,
+                      location=identified_individuals_parley1$Loc_date,
+                      global_ids=global_ids_parley1)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Extract output
+gbi_parley1 <- gmm_data_parley1$gbi
+# gbi_parley1 <- gbi_parley1[,which(colSums(gbi_parley1)>0)]
+solo<-which(rowSums(gbi_parley1)<=1)
+gbi_parley1<-gbi_parley1[-solo,]
+events_parley1 <- gmm_data_parley1$metadata
+events_parley1 <- events_parley1[-solo,]
+observations_per_event_parley1 <- gmm_data_parley1$B
+observations_per_event_parley1<-observations_per_event_parley1[-solo,]
+
+dim(gbi_parley1)
+
+# Split up location and date data
+tmp <- strsplit(events_parley1$Location,"_")
+tmp <- do.call("rbind",tmp)
+events_parley1$Location <- tmp[,1]
+events_parley1$Date <- tmp[,2]
+events_parley1$midpoint<-(events_parley1$Start-events_parley1$End)/2+events_parley1$Start #equivalent to "times" in example
+# times<-events$midpoint
+# names(times)<-1:length(times)
+head(events_parley1)
+saveRDS(gbi_parley1, file = "gbi_parley1.RDS") 
+saveRDS(events_parley1, file = "events_parley1.RDS")
+
+```
+
+### Number of visits through time
+Below we show the number of visits through time for both the Boat Ramp and Crown College sites. The three blue lines in the histogams below indicate the dates of baiting, adding nets, and the first capture event respectively. 
+```{r, cache=TRUE}
+#histogram of number of unique vistors to Boat Ramp by sampling day
+start_date<-as.POSIXct("2019-07-23 12:00:00 CDT")
+end_date<-as.POSIXct("2019-10-29 12:00:00 CDT")
+
+num_days<-as.numeric(end_date-start_date)
+sampling_df <-data.frame(day=1:num_days, uniqueID=rep(NA, num_days))
+degree_list<-NULL
+
+for(i in 1:num_days){
+  sub_combined<-merged_br %>% filter(DATETIME >= as.POSIXct(start_date+ (i-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + i*86400, tz="CDT")) #86400 seconds/24 hours
+  # print(sub_combined)
+  sampling_df$uniqueID[i]<-length(unique(sub_combined$PIT))
+  PITs<-unique(sub_combined$PIT)
+  if(length(PITs)>0){
+  carp.degree<-data.frame(PITs, numsites= rep(NA, length(PITs)))
+      for(j in 1:length(PITs)){
+        carp.degree$numsites[j]<-length(unique(sub_combined$Antenna[which(sub_combined$PIT==PITs[j])]))
+      }
+  degree_list[[i]]<-carp.degree
+  }
+}
+
+sampling_df$uniqueID<-as.numeric(sampling_df$uniqueID)
+barplot(uniqueID ~day, data=sampling_df, xlab="Sampling Day", ylab="Number of unique carp", main="Boat Ramp: Number of unique carp detected per day")
+abline (v = 7, col="blue") #corn
+abline (v = 24, col="blue") #net
+abline (v= 27,col="blue") #first capture
+
+
+#histogram of number of unique vistors to College Crown by sampling day
+# num_days<-as.numeric(end_date-start_date)
+sampling_df <-data.frame(day=1:num_days, uniqueID=rep(NA, num_days))
+degree_list<-NULL
+
+for(i in 1:num_days){
+  sub_combined<-merged_crown %>% filter(DATETIME >= as.POSIXct(start_date+ (i-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + i*86400, tz="CDT")) #86400 seconds/24 hours
+  # print(sub_combined)
+  sampling_df$uniqueID[i]<-length(unique(sub_combined$PIT))
+  PITs<-unique(sub_combined$PIT)
+  if(length(PITs)>0){
+  carp.degree<-data.frame(PITs, numsites= rep(NA, length(PITs)))
+      for(j in 1:length(PITs)){
+        carp.degree$numsites[j]<-length(unique(sub_combined$Antenna[which(sub_combined$PIT==PITs[j])]))
+      }
+  degree_list[[i]]<-carp.degree
+  }
+}
+
+
+sampling_df$uniqueID<-as.numeric(sampling_df$uniqueID)
+barplot(uniqueID ~day, data=sampling_df, xlab="Sampling Day", ylab="Number of unique carp", main="Crown College: Number of unique carp detected per day")
+abline (v = 7, col="blue") #corn
+abline (v = 24, col="blue") #net
+abline (v= 27,col="blue") #first capture
+```
+
+In these plots, individual visits of unique carp are shown through time. Individual antenna within each site are shown in different colors illustrating the continuous, temporal data that has been collected. *Interpretation* These plots suggests that individual carp may have independent preferences for certain antenna within a site and that these preferences may be malleable/plastic through time. Some daytime vs. night time cycling is also visible, with activity typically clustered in evening and morning hours. 
+
+```{r}
+#time course of individual carp visits to Boat Ramp site during baiting period
+ggplot(data=br_corn, aes(DATETIME, as.factor(PIT), color=Antenna)) +
+  geom_point(alpha=0.5)+
+  scale_x_datetime(date_breaks="1 day")+
+  ggtitle("Boat Ramp")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text.y=element_text(size=6), axis.title = element_text(size=10))
+
+#time course of individual carp visits to Crown College site during baiting period
+ggplot(data=crown_corn, aes(DATETIME, as.factor(PIT), color=Antenna)) +
+  geom_point(alpha=0.5)+
+  scale_x_datetime(date_breaks="1 day")+
+  ggtitle("Crown College")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text.y=element_text(size=6), axis.title = element_text(size=10))
+
+
+```
+
+### Superfeeders and feeding preference
+Below we show histograms for the number of sampling days each fish visits Boat Ramp and Crown college. *Interpretation* While the majority of sampled individuals (>20 at both Boat Ramp and Crown College sites) are detected only once, there is a long tail distribution, which resemble a power law distribution. This suggests that there are a few individuals which are consistently present at either site.
+
+```{r superfeeders, cache=TRUE}
+start_date<-as.POSIXct("2019-07-30 12:00:00 CDT") #rounded to nearest midday
+end_date<-as.POSIXct("2019-08-16 12:00:00 CDT")
+num_days<-as.numeric(end_date-start_date)
+
+#Histogram of the number of sampling days each fish visits Boat Ramp
+superfish_br<-calc_nvisit(df=br_corn, num_days=num_days, start_date=start_date)
+# hist(superfish_br$nvisit, breaks=max(superfish_br$nvisit), xlab="Number of sampling days", ylab="Number of unique fish", main="Boat Ramp: Baiting Period", col="light gray", xlim=c(0,20), ylim=c(0,30))
+
+ggplot(superfish_br,aes(nvisit)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of sampling days")+
+  ylab("Number of unique fish")+
+  ggtitle("Boat Ramp: Baiting Period")
+
+#Histogram of the number of sampling days each fish visits Crown College
+superfish_crown<-calc_nvisit(df=crown_corn, num_days=num_days, start_date=start_date)
+# hist(superfish_crown$nvisit, breaks=max(superfish_crown$nvisit), xlab="Number of sampling days", ylab="Number of unique fish", main="Crown College: Baiting Period", col="light gray", xlim=c(0,20), ylim=c(0,35))
+
+ggplot(superfish_crown,aes(nvisit)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of sampling days")+
+  ylab("Number of unique fish")+
+  ggtitle("Crown College: Baiting Period")
+
+```
+
+We also combine visits by site and show the relative proportion of visits to each site per fish. We highlight "superfeeders"--those fish accounting for the top 20% of total visits to the left of the vertical black line. *Interpretation* this plots suggest, that in general, but particularly for superfeeders, that carp have strong site fidelity/preference for a particular site. 
+
+```{r superfeeders2, cache=TRUE}
+#Combined plot showing site preference and number of detected visits by fish
+combo<-merge(superfish_br, superfish_crown, by="fishID", all.x=TRUE, all.y=TRUE)
+combo[is.na(combo)] <- 0
+
+test<-melt(combo, id.vars="fishID")
+test<-test[order(test$value, decreasing=TRUE),]
+
+combo$total<-combo$nvisit.x+ combo$nvisit.y
+combo<-combo[order(combo$total, decreasing=TRUE),]
+test$fishID <- factor(test$fishID, levels = combo$fishID[order(combo$total, decreasing=TRUE)])
+
+# top20<-round(nrow(combo)*.2)
+top20<-round(length(levels(test$fishID))*.2)
+cutoff<-levels(test$fishID)[top20]
+# cutoff<-combo$fishID[top20]
+
+ggplot(test, aes(fill=variable, y=value, x=reorder(fishID, -value)))+ 
+    geom_col()+
+    theme(axis.text.x = element_text(size=6, angle = 90, hjust = 1))+
+    scale_fill_discrete(name = "Site", labels = c("Boat Ramp", "Crown"))+
+    labs(y= "Visits", x = "Carp ID")+
+    geom_vline(xintercept=which(test$fishID == cutoff))
+```
+
+### Average group size and feeding bout duration
+Below we show histograms for average group size during feeding for the Boat Ramp and Crown College sites, as detected by Gaussian mixed models (GMM).
+```{r load_gmm}
+events_br <- readRDS("~/Carp/events_br.RDS")
+events_br1 <- readRDS("~/Carp/events_br1.RDS")
+events_crown <- readRDS("~/Carp/events_crown.RDS")
+events_crown1 <- readRDS("~/Carp/events_crown1.RDS")
+events_parley <- readRDS("~/Carp/events_parley.RDS")
+events_parley1 <- readRDS("~/Carp/events_parley1.RDS")
+
+gbi_br <- readRDS("~/Carp/gbi_br.RDS")
+gbi_br1 <- readRDS("~/Carp/gbi_br1.RDS")
+gbi_crown <- readRDS("~/Carp/gbi_crown.RDS")
+gbi_crown1 <- readRDS("~/Carp/gbi_crown1.RDS")
+gbi_parley <- readRDS("~/Carp/gbi_parley.RDS")
+gbi_parley1 <- readRDS("~/Carp/gbi_parley1.RDS")
+
+```
+
+*Interpretation:* Smaller associations/shoaling events are more common. For the Boat Ramp site with antennas disaggregated, the mean duration of feeding bouts is 10.2 min and the median duration is 6.1 min. Group size vs. bout duration plots for both ways of analyzing Boat Ramp data seems to suggest that larger groups/feeding bouts are generally shorter than smaller group associations. 
+
+```{r br_groups, cache=TRUE}
+#histogram of group size for Boat Ramp (separate antenna)
+br_gs<-data.frame(bout=1:nrow(gbi_br), groupsize=rowSums(gbi_br))
+br_gs$dur<-events_br$End-events_br$Start
+br_gs$dur_min<-br_gs$dur/60
+head(br_gs)
+
+ggplot(br_gs, aes(groupsize)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of carp per feeding bout")+
+  ylab("Number of times observed")+
+  ggtitle("Boat Ramp (separate antenna): Average group size")
+
+#histogram of feeding bout duration for Boat Ramp (separate antenna)
+ggplot(br_gs, aes(dur_min)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous()+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Boat Ramp (separate antenna): Duration of feeding bout (min)")
+
+mean(br_gs$dur_min)
+median(br_gs$dur_min)
+
+#QQ plot of group size vs. bout duration Boat Ramp (separate antenna)
+ggplot(br_gs, aes(x=dur_min, y=groupsize)) +
+  geom_point(size=2, shape=19, alpha=0.6)+
+  xlab("Bout duration (min)")+
+  ylab("Group size")+
+  ggtitle("Boat Ramp (separate antenna)")
+```
+
+*Interpretation:* For the Boat Ramp site with antennas aggregated, the mean duration of feeding bouts is 6.3 min and the median duration is 4.1 min. As with disaggregated antenna above, larger groups usually associate for less time comparatively.
+
+```{r}
+#histogram of group size for Boat Ramp (combined antenna)
+br_gs1<-data.frame(bout=1:nrow(gbi_br1), groupsize=rowSums(gbi_br1))
+br_gs1$dur<-events_br1$End-events_br1$Start
+br_gs1$dur_min<-br_gs1$dur/60
+head(br_gs1)
+
+ggplot(br_gs1, aes(groupsize)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="cyan3") + 
+scale_x_continuous()+
+  xlab("Number of carp per feeding bout")+
+  ylab("Number of times observed")+
+  ggtitle("Boat Ramp (combined antenna): Average group size")
+
+#histogram of feeding bout duration for Boat Ramp (combined antenna)
+ggplot(br_gs1, aes(dur_min)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="cyan3") + 
+scale_x_continuous()+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Boat Ramp (combined antenna): Duration of feeding bout (min)")
+
+mean(br_gs1$dur_min)
+median(br_gs1$dur_min)
+
+ggplot(br_gs1, aes(x=dur_min, y=groupsize)) +
+  geom_point(size=2, shape=19, alpha=0.6)+
+  xlab("Bout duration (min)")+
+  ylab("Group size")+
+  ggtitle("Boat Ramp (Combined Antenna)")
+
+```
+
+*Interpretation:* For the Crown College site with antennas disaggregated, the mean duration of feeding bouts is 10.1 min and the median duration is 6.1 min. Larger groups usually associate for less time comparatively.
+
+```{r}
+crown_gs<-data.frame(bout=1:nrow(gbi_crown), groupsize=rowSums(gbi_crown))
+crown_gs$dur<-events_crown$End-events_crown$Start
+crown_gs$dur_min<-crown_gs$dur/60
+head(crown_gs)
+
+ggplot(crown_gs, aes(groupsize)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="steelblue1") + 
+scale_x_continuous()+
+  xlab("Number of carp per feeding bout")+
+  ylab("Number of times observed")+
+  ggtitle("Crown College (separate antenna): Average group size")
+
+mean(crown_gs$dur_min)
+median(crown_gs$dur_min)
+
+#histogram of feeding bout duration for Boat Ramp (combined antenna)
+ggplot(crown_gs, aes(dur_min)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="steelblue1") + 
+  scale_x_continuous()+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Crown College (separate antenna): Duration of feeding bout (min)")
+
+ggplot(crown_gs, aes(x=dur_min, y=groupsize)) +
+  geom_point(size=2, shape=19, alpha=0.6)+
+  xlab("Bout duration (min)")+
+  ylab("Group size")+
+  ggtitle("Crown College (Separate Antenna)")
+
+```
+
+*Interpretation:* For the Crown College site with antennas aggregated, the mean duration of feeding bouts is 6.0 min and the median duration is 4.8 min. Larger groups usually associate for less time comparatively.
+
+```{r}
+crown_gs1<-data.frame(bout=1:nrow(gbi_crown1), groupsize=rowSums(gbi_crown1))
+crown_gs1$dur<-events_crown1$End-events_crown1$Start
+crown_gs1$dur_min<-crown_gs1$dur/60
+head(crown_gs1)
+
+ggplot(crown_gs1, aes(groupsize)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="steelblue4") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of carp per feeding bout")+
+  ylab("Number of times observed")+
+  ggtitle("Crown College (combined antenna): Average group size")
+
+#histogram of feeding bout duration for Boat Ramp (combined antenna)
+ggplot(crown_gs1, aes(dur_min)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="steelblue4") + 
+  scale_x_continuous()+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Crown College (combined antenna): Duration of feeding bout (min)")
+
+mean(crown_gs1$dur_min)
+median(crown_gs1$dur_min)
+
+ggplot(crown_gs1, aes(x=dur_min, y=groupsize)) +
+  geom_point(size=2, shape=19, alpha=0.6)+
+  xlab("Bout duration (min)")+
+  ylab("Group size")+
+  ggtitle("Crown College (combined Antenna)")
+
+
+
+```
+
+*Interpretation:* For Lake Parley with antennas disaggregated, the mean duration of feeding bouts is 10.2 min and the median duration is 5.8 min. Larger groups usually associate for less time comparatively.
+
+```{r}
+parley_gs<-data.frame(bout=1:nrow(gbi_parley), groupsize=rowSums(gbi_parley))
+parley_gs$dur<-events_parley$End-events_parley$Start
+parley_gs$dur_min<-parley_gs$dur/60
+head(parley_gs)
+
+ggplot(parley_gs, aes(groupsize)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkorange1") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of carp per feeding bout")+
+  ylab("Number of times observed")+
+  ggtitle("Parley (separate antenna): Average group size")
+
+#histogram of feeding bout duration for Parley (separate antenna)
+ggplot(parley_gs, aes(dur_min)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkorange1") + 
+  scale_x_continuous()+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Parley (separate antenna): Duration of feeding bout (min)")
+
+mean(parley_gs$dur_min)
+median(parley_gs$dur_min)
+
+ggplot(parley_gs, aes(x=dur_min, y=groupsize)) +
+  geom_point(size=2, shape=19, alpha=0.6)+
+  xlab("Bout duration (min)")+
+  ylab("Group size")+
+  ggtitle("Parley (Separate Antenna)")
+```
+
+*Interpretation:* For Lake Parley with antennas aggregated, the mean duration of feeding bouts is 6.1 min and the median duration is 4.5 min. Larger groups usually associate for less time comparatively.
+
+```{r}
+parley_gs1<-data.frame(bout=1:nrow(gbi_parley1), groupsize=rowSums(gbi_parley1))
+parley_gs1$dur<-events_parley1$End-events_parley1$Start
+parley_gs1$dur_min<-parley_gs1$dur/60
+head(parley_gs1)
+
+ggplot(parley_gs1, aes(groupsize)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkorange4") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of carp per feeding bout")+
+  ylab("Number of times observed")+
+  ggtitle("Parley (combined antenna): Average group size")
+
+#histogram of feeding bout duration
+ggplot(parley_gs1, aes(dur_min)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkorange4") + 
+  scale_x_continuous()+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Parley (combined antenna): Duration of feeding bout (min)")
+
+mean(parley_gs1$dur_min)
+median(parley_gs1$dur_min)
+
+ggplot(parley_gs1, aes(x=dur_min, y=groupsize)) +
+  geom_point(size=2, shape=19, alpha=0.6)+
+  xlab("Bout duration (min)")+
+  ylab("Group size")+
+  ggtitle("Parley (combined antenna)")
+
+```
+
+## GMM Networks
+Here we show plots of individual networks derived from aggregated and disaggregated antenna for Boat Ramp, Crown College, and both sites togther. This code also produced histograms of weighted degree which reflects both the number of edges (contacts) of a given node, but also the frequency or intensity of those interactions.
+
+*Interpretation:* Across the sites,like the superfeeder histogram plots above, we see something resembling a powerlaw distribution where most individuals have a low weighted degree, but fewer have higher numbers and intensities of interactions.
+
+In the weighted degree vs. betweenness plots, we see that some indvidiuals have an especially high betweenness and/or weighted degree score relative to the rest of the population. This points to potential social influencers 
+
+
+### Boat Ramp Networks
+```{r}
+library(asnipe)
+library(igraph)
+
+# Network of Boat Ramp (separate antenna)
+identities<-colnames(gbi_br)
+network <- matrix(0, ncol(gbi_br), ncol(gbi_br))
+
+network<- get_network(gbi_br, data_format="GBI",
+association_index="HWI", identities=identities, times=events_br$midpoint, start_time=min(events_br$midpoint),     end_time=max(events_br$midpoint))
+rownames(network)<-identities
+colnames(network)<-identities
+
+net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
+deg_weighted <- graph.strength(net)
+hist(deg_weighted, main="Histogram of Weighted Degree for Boat Ramp Network (SRI)")
+V(net)$size <- deg_weighted*10
+plot(net, vertex.color="cyan4", vertex.label=NA, vertex.label.color="black", main="Boat Ramp: Separate Antenna")
+
+network_stats_br<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
+igraph::transitivity(net, type="localundirected"))
+network_stats_br$node_names<-rownames(network_stats_br)
+
+br_long<-gather(network_stats_br, key=network_metric, value=value,
+weighted_degree:transitivity)
+
+ggplot(network_stats_br, aes(x=weighted_degree, y=betweenness))+
+  geom_point(aes(size=transitivity, alpha=0.5))+
+  xlab("Weighted degree")+
+  ylab("Betweenness")+
+  ggtitle("Boat Ramp (separate antenna)")+
+  geom_text(aes(label=node_names),hjust=0, vjust=0)
+
+# Network of Boat Ramp (combined antenna)
+
+identities<-colnames(gbi_br1)
+network <- matrix(0, ncol(gbi_br1), ncol(gbi_br1))
+
+network<- get_network(gbi_br1, data_format="GBI",
+association_index="HWI", identities=identities, times=events_br1$midpoint, start_time=min(events_br1$midpoint),     end_time=max(events_br1$midpoint))
+rownames(network)<-identities
+colnames(network)<-identities
+
+net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
+deg_weighted <- graph.strength(net)
+hist(deg_weighted, main="Histogram of Weighted Degree for Boat Ramp Network (SRI)")
+V(net)$size <- deg_weighted*10
+plot(net, vertex.color="cyan4", vertex.label= NA, main="Boat Ramp: Combined Antenna")
+
+network_stats_br1<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
+igraph::transitivity(net, type="localundirected"))
+network_stats_br1$node_names<-rownames(network_stats_br1)
+
+br1_long<-gather(network_stats_br1, key=network_metric, value=value,
+weighted_degree:transitivity)
+
+ggplot(network_stats_br1, aes(x=weighted_degree, y=betweenness))+
+  geom_point(aes(size=transitivity, alpha=0.5))+
+  xlab("Weighted degree")+
+  ylab("Betweenness")+
+  ggtitle("Boat Ramp (combined antenna)")+
+  geom_text(aes(label=node_names),hjust=0, vjust=0)
+
+```
+
+### Crown College Networks
+
+```{r}
+# Network of Crown College (separate antenna) 
+networks <- array(0, c(2,ncol(gbi_crown), ncol(gbi_crown))) 
+
+# Network of Crown College (separate antenna)
+identities<-colnames(gbi_crown)
+network <- matrix(0, ncol(gbi_crown), ncol(gbi_crown))
+
+network<- get_network(gbi_crown, data_format="GBI",
+association_index="HWI", identities=identities, times=events_crown$midpoint, start_time=min(events_crown$midpoint),     end_time=max(events_crown$midpoint))
+rownames(network)<-identities
+colnames(network)<-identities
+
+net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
+deg_weighted <- graph.strength(net)
+hist(deg_weighted, main="Histogram of Weighted Degree for Crown College Network (SRI)")
+V(net)$size <- deg_weighted*10
+plot(net, vertex.color="cyan4", vertex.label=NA, vertex.label.color="black", main="Crown College: Separate Antenna")
+
+network_stats_crown<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
+igraph::transitivity(net, type="localundirected"))
+network_stats_crown$node_names<-rownames(network_stats_crown)
+
+
+crown_long<-gather(network_stats_crown, key=network_metric, value=value,
+weighted_degree:transitivity)
+
+ggplot(network_stats_crown, aes(x=weighted_degree, y=betweenness))+
+  geom_point(aes(size=transitivity, alpha=0.5))+
+  xlab("Weighted degree")+
+  ylab("Betweenness")+
+  ggtitle("Crown College (separate antenna)")+
+  geom_text(aes(label=node_names),hjust=0, vjust=0)
+
+# Network of Crown College (combined antenna)
+
+identities<-colnames(gbi_crown1)
+network <- matrix(0, ncol(gbi_crown1), ncol(gbi_crown1))
+
+network<- get_network(gbi_crown1, data_format="GBI",
+association_index="HWI", identities=identities, times=events_crown1$midpoint, start_time=min(events_crown1$midpoint),     end_time=max(events_crown1$midpoint))
+rownames(network)<-identities
+colnames(network)<-identities
+
+net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
+deg_weighted <- graph.strength(net)
+hist(deg_weighted, main="Histogram of Weighted Degree for Crown College Network (SRI)")
+V(net)$size <- deg_weighted*10
+plot(net, vertex.color="cyan4", vertex.label= NA, main="Crown College: Combined Antenna")
+
+network_stats_crown1<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
+igraph::transitivity(net, type="localundirected"))
+network_stats_crown1$node_names<-rownames(network_stats_crown1)
+
+crown1_long<-gather(network_stats_crown1, key=network_metric, value=value,
+weighted_degree:transitivity)
+
+ggplot(network_stats_crown1, aes(x=weighted_degree, y=betweenness))+
+  geom_point(aes(size=transitivity, alpha=0.5))+
+  xlab("Weighted degree")+
+  ylab("Betweenness")+
+  ggtitle("Crown College (combined antenna)")+
+  geom_text(aes(label=node_names),hjust=0, vjust=0)
+
+
+```
+
+### Lake Parley Networks
+
+```{r}
+
+# Network of Lake Parley (separate antenna) 
+networks <- array(0, c(2,ncol(gbi_parley), ncol(gbi_parley))) 
+
+identities<-colnames(gbi_parley)
+network <- matrix(0, ncol(gbi_parley), ncol(gbi_parley))
+
+network<- get_network(gbi_parley, data_format="GBI",
+association_index="HWI", identities=identities, times=events_parley$midpoint, start_time=min(events_parley$midpoint),     end_time=max(events_parley$midpoint))
+rownames(network)<-identities
+colnames(network)<-identities
+
+net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
+deg_weighted <- graph.strength(net)
+hist(deg_weighted, main="Histogram of Weighted Degree for Parley Network")
+V(net)$size <- deg_weighted*10
+plot(net, vertex.color="cyan4", vertex.label=NA, vertex.label.color="black", main="Parley: Separate Antenna")
+
+network_stats_parley<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
+igraph::transitivity(net, type="localundirected"))
+network_stats_parley$node_names<-rownames(network_stats_parley)
+
+parley_long<-gather(network_stats_parley, key=network_metric, value=value,
+weighted_degree:transitivity)
+
+ggplot(network_stats_parley, aes(x=weighted_degree, y=betweenness))+
+  geom_point(aes(size=transitivity, alpha=0.5))+
+  xlab("Weighted degree")+
+  ylab("Betweenness")+
+  ggtitle("Parley (separate antenna)")+
+  geom_text(aes(label=node_names),hjust=0, vjust=0)
+
+# Network of Parley (combined antenna)
+
+identities<-colnames(gbi_parley1)
+network <- matrix(0, ncol(gbi_parley1), ncol(gbi_parley1))
+
+network<- get_network(gbi_parley1, data_format="GBI",
+association_index="HWI", identities=identities, times=events_parley1$midpoint, start_time=min(events_parley1$midpoint),     end_time=max(events_parley1$midpoint))
+rownames(network)<-identities
+colnames(network)<-identities
+
+net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
+deg_weighted <- graph.strength(net)
+hist(deg_weighted, main="Histogram of Weighted Degree for Parley Network")
+V(net)$size <- deg_weighted*10
+plot(net, vertex.color="cyan4", vertex.label= NA, main="Parley: Combined Antenna")
+
+network_stats_parley1<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
+igraph::transitivity(net, type="localundirected"))
+network_stats_parley1$node_names<-rownames(network_stats_parley1)
+
+parley1_long<-gather(network_stats_parley1, key=network_metric, value=value,
+weighted_degree:transitivity)
+
+ggplot(network_stats_parley1, aes(x=weighted_degree, y=betweenness))+
+  geom_point(aes(size=transitivity, alpha=0.5))+
+  xlab("Weighted degree")+
+  ylab("Betweenness")+
+  ggtitle("Parley (combined antenna)")+
+  geom_text(aes(label=node_names),hjust=0, vjust=0)
+
+```
+
+
+### Boxplots of individual network measures
+Here we plot boxplots of individual unweighted degree, overall association strength (weighted degree) and betweenness for networks of Boat Ramp, College Crown, and the combined sites.
+
+*Interpretation:* It's difficult to interpret the first few boxplots (across different types of metrics) because the scale of the different metrics is so different (e.g. betweenness with scores up to 400 and local transitivity which scales from 0 to 1). The last box plot looks at the effect of aggregated or separating the antenna at any given site across network metrics. We see that combining antenna generally leads to higher betweenness and weighted degree scores, although not a stastically significant level. What I read from this is that we're not necessarily losing anything or changing much by aggregating vs. disaggregating antenna. Although the combined Lake Parley analysis certainly points to some individuals as "connecting" the two sites with outlier betweenness scores. 
+```{r}
+
+# boxplots of individual network measures 
+ggplot(br_long, aes(x=network_metric, y=value)) + 
+  geom_boxplot()+ 
+  ggtitle("Network metrics for Boat Ramp Site (Separate Antenna)")+ #
+  xlab("Network metric")
+
+#boxplots of individual network measures for Boat Ramp
+ggplot(br1_long, aes(x=network_metric, y=value)) + 
+  geom_boxplot()+ 
+  ggtitle("Network metrics for Boat Ramp Site (Combined Antenna)")+ #
+  xlab("Network metric")
+
+#boxplots of individual network measures for Crown College
+ggplot(crown_long, aes(x=network_metric, y=value)) + #
+  geom_boxplot()+ 
+  ggtitle("Network metrics for Crown College Site (Separate Antenna)")+ #
+  xlab("Network metric") 
+
+#boxplots of individual network measures for Crown College
+ggplot(crown_long, aes(x=network_metric, y=value)) + #
+  geom_boxplot()+ 
+  ggtitle("Network metrics for Crown College Site (Combined Antenna)")+ #
+  xlab("Network metric") 
+
+ggplot(parley_long, aes(x=network_metric, y=value)) + #
+  geom_boxplot()+ 
+  ggtitle("Network metrics for Lake Parley (Separate Antenna)")+ #
+  xlab("Network metric") 
+
+ggplot(parley1_long, aes(x=network_metric, y=value)) + #
+  geom_boxplot()+ 
+  ggtitle("Network metrics for Lake Parley (Combined Antenna)")+ #
+  xlab("Network metric") 
+
+br_long$site<-rep("BR", nrow(br_long))
+br1_long$site<-rep("BR", nrow(br1_long))
+br_long$analysis<-rep("separate", nrow(br_long))
+br1_long$analysis<-rep("combined", nrow(br1_long))
+
+crown_long$site<-rep("C", nrow(crown_long))
+crown1_long$site<-rep("C", nrow(crown1_long))
+crown_long$analysis<-rep("separate", nrow(crown_long))
+crown1_long$analysis<-rep("combined", nrow(crown1_long))
+
+parley_long$site<-rep("P", nrow(parley_long))
+parley1_long$site<-rep("P", nrow(parley1_long))
+parley_long$analysis<-rep("separate", nrow(parley_long))
+parley1_long$analysis<-rep("combined", nrow(parley1_long))
+
+all_sites_long<-rbind(br_long, br1_long, crown_long, crown1_long, parley_long, parley1_long)
+
+ggplot(all_sites_long, aes(x=site, y=value)) + #
+  geom_boxplot()+ 
+  facet_grid(network_metric~analysis, scales = "free")+
+  ggtitle("Comparing network metrics across sites")+ #
+  xlab("Site") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+### Reproducibility
+```{r}
+Sys.time()
+git2r::repository()
+sessionInfo()
+```
+
+
+### References
+
+Damien R. Farine (2019). asnipe: Animal Social Network Inference and
+  Permutations for Ecologists. R package version 1.1.12.
+  https://CRAN.R-project.org/package=asnipe
+
