@@ -1,13 +1,13 @@
 ---
 title: "Carp Network Topology"
 author: "Lauren White"
-date: "2/24/2020"
+date: "2/26/2020"
 output: html_document
 ---
 
-Script to focus on daily network properties at single sites.
+Script to focus on daily network properties/topology at Boat Ramp site.
 
-```{r setup, include=FALSE}
+```{r setup, include=FALSE, cache=TRUE}
 knitr::opts_chunk$set(echo = TRUE)
 library(dplyr)
 library(stringr)
@@ -23,7 +23,7 @@ library(gganimate)
 ## Boatramp
 ### Load PIT Tag capture and Boatramp site-specific data
 
-```{r}
+```{r, echo=FALSE}
 #Capture data: refromat capture date as POISXct; retain PIT#, species, and capture date
 pit_capture <-read.csv("test_2019_01_21.csv", stringsAsFactors = FALSE, colClasses = "character")
 pit_capture<- select(pit_capture, c(Lake, PIT, Length, Sex))
@@ -53,91 +53,49 @@ head(merged_br)
 length(unique(merged_br$PIT))
 ```
 
-### Overview of unique visits per day
-```{r}
-ggplot(data=merged_br, aes(DATETIME, as.factor(PIT), color=Antenna)) +
-  geom_point(alpha=0.5) # +
-  # # scale_x_datetime(date_breaks="1 day")+
-  # xlab("Date")+
-  # ylab("Carp PIT ID")+
-  # theme(axis.text.x=element_text(angle=90), axis.text=element_text(size=8), axis.title = element_text(size=10))
+### Are there any "super feeders"?
+How many days out of the total number of sampling days did fish visit any of the antenna at Boat Ramp?
 
+```{r}
 dates<-unique(merged_br$DATETIME) #how many dates of observation in dataset?
 (min_date<-min(dates))
 (max_date<-max(dates))
 
 start_date<-as.POSIXct("2019-07-23 12:00:00 CDT")
 end_date<-as.POSIXct("2019-10-29 12:00:00 CDT")
-
 num_days<-as.numeric(end_date-start_date)
-sampling_df <-data.frame(day=1:num_days, uniqueID=rep(NA, num_days))
-degree_list<-NULL
 
-for(i in 1:num_days){
-  sub_combined<-merged_br %>% filter(DATETIME >= as.POSIXct(start_date+ (i-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + i*86400, tz="CDT")) #86400 seconds/24 hours
-  # print(sub_combined)
-  sampling_df$uniqueID[i]<-length(unique(sub_combined$PIT))
-  PITs<-unique(sub_combined$PIT)
-  if(length(PITs)>0){
-  carp.degree<-data.frame(PITs, numsites= rep(NA, length(PITs)))
-      for(j in 1:length(PITs)){
-        carp.degree$numsites[j]<-length(unique(sub_combined$Antenna[which(sub_combined$PIT==PITs[j])]))
-      }
-  degree_list[[i]]<-carp.degree
-  }
+superfish<-data.frame(fishID=unique(merged_br$PIT), nvisit=rep(NA,length(unique(merged_br$PIT)))) 
+
+for (i in 1:length(unique(merged_br$PIT))){
+    fishID<-unique(merged_br$PIT)[i]
+    visit_count<-0
+    for (j in 1:num_days){
+        sub_combined<-merged_br %>% filter(DATETIME >= as.POSIXct(start_date+ (j-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + j*86400, tz="CDT")) #86400 seconds/24 hours
+        fishID %in% sub_combined$PIT
+    if(fishID %in% sub_combined$PIT){
+      visit_count<-visit_count+1
+    }
+    }
+    superfish$nvisit[i]<-visit_count
 }
 
-
-sampling_df$uniqueID<-as.numeric(sampling_df$uniqueID)
-barplot(uniqueID ~day, data=sampling_df, xlab="Sampling Day", ylab="Number of unique carp")
-
-dt<-rbindlist(degree_list, use.names=TRUE, fill=TRUE, idcol="SamplingDay")
-
-p<- ggplot(dt, aes(x=numsites)) + geom_histogram(center=0)
-p + transition_time(SamplingDay) +
-  labs(title = "Boat Ramp-Sampling Day: {frame_time}")
-
-#Are carp visiting all antennae at BR site (across total sampling period)?
-PITs<-unique(merged_br$PIT)
-carp.degree<-data.frame(PITs, numsites= rep(NA, length(PITs)))
-for(i in 1:length(PITs)){
-  carp.degree$numsites[i]<-length(unique(merged_br$Antenna[which(merged_br$PIT==PITs[i])]))
-}
-
-hist(carp.degree$numsites, xlab= "Number of unique antennae visited per carp", main=NULL, cex.lab=1.5, cex.axis=1.5, breaks=seq(min(carp.degree$numsites)-0.5, max(carp.degree$numsites)+0.5, by=1), right=TRUE)
-
-#Bipartite network for boat ramp site
-edgelist<-data.frame(PIT=merged_br$PIT, Reader=merged_br$Antenna)
-
-A <- spMatrix(nrow=length(unique(edgelist$PIT)),
-        ncol=length(unique(edgelist$Reader)),
-        i = as.numeric(factor(edgelist$PIT)),
-        j = as.numeric(factor(edgelist$Reader)),
-        x = rep(1, length(as.numeric(edgelist$PIT))) )
-row.names(A) <- levels(factor(edgelist$PIT))
-colnames(A) <- levels(factor(edgelist$Reader))
-
-
-
-#using carp data
-bi<-graph.incidence(A, mode="all") #undirected, named graph that is bipartite
-pr<-bipartite.projection(bi) 
-#co-membership network of nodes ($proj1), or a network of groups that share members ($proj2)
-
-# get.adjacency(pr$proj1,sparse=FALSE,attr="weight")
-plot(pr$proj2)
-
-visweb(t(A), circles=TRUE,  boxes=FALSE,  labsize=1, circle.max=1.5, text="no", plotsize= 18)
-plotweb(as.matrix(A), text.rot=90, labsize=1, low.lablength = 6, text.low.col="black")
+hist(superfish$nvisit, xlab="Number of sampling days", main="")
 ```
+
+
+### Daily network topology and feeder visiting behavior
+
 ```{r}
-num_days<-as.numeric(end_date-start_date)
+
 network_df <-data.frame(day=1:num_days, nnodes=rep(NA,num_days), mean_degree=rep(NA, num_days), transitivity=rep(NA, num_days), edge_density=rep(NA, num_days), diameter=rep(NA, num_days), centralization=rep(NA, num_days), eigen= rep(NA, num_days), btwn= rep(NA, num_days),modularity=rep(NA, num_days))
 degree_list<-NULL
 
 for(i in 1:num_days){
   sub_combined<-merged_br %>% filter(DATETIME >= as.POSIXct(start_date+ (i-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + i*86400, tz="CDT")) #86400 seconds/24 hours
   # print(sub_combined)
+  
+
   
   edgelist<-data.frame(PIT=sub_combined$PIT, Reader=sub_combined$Antenna)
   network_df$nnodes[i]<-length(unique(sub_combined$PIT))
@@ -155,6 +113,9 @@ if(nrow(edgelist)>0){
   pr<-bipartite.projection(bi) 
   #co-membership network of nodes ($proj1), or a network of groups that share members ($proj2)
   plot(pr$proj1, main=paste("Day =", i))
+  g<- ggplot(data=sub_combined, aes(DATETIME, as.factor(PIT), color=Antenna)) +
+  geom_point(alpha=0.5)
+  print(g)
   
   network_df$mean_degree[i]<-mean(degree_distribution(pr$proj1))
   network_df$transitivity[i]<-transitivity(pr$proj1, "global")
@@ -204,3 +165,22 @@ points(network_df$day, network_df$btwn, col="blue")
 
 ```
 
+
+### Time between visits
+```{r}
+A1<-merged_br %>% filter(Antenna == "A1") 
+A2<-merged_br %>% filter(Antenna == "A2")
+A3<-merged_br %>% filter(Antenna == "A2") 
+
+length(unique(A1$PIT))
+length(unique(A2$PIT))
+length(unique(A3$PIT))
+```
+
+
+
+### Next steps:
+- Lagged association rates (LAR)- Whitehead, H. (1995) Investigating structure and temporal scale in social organizations using identified individuals. Behavioral Ecology, 6, 199– 208.
+- `asnipe` package
+- Damien Farine's work in finches?
+- Ben Sheldon's work on great tits?
