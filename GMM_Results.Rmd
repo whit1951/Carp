@@ -478,7 +478,7 @@ saveRDS(events_parley1, file = "events_parley1.RDS")
 ```
 
 ### Number of visits through time
-Below we show the number of visits through time for both the Boat Ramp and Crown College sites. The three blue lines in the histogams below indicate the dates of baiting, adding nets, and the first capture event respectively. 
+Below we show the number of visits through time for both the Boat Ramp and Crown College sites. The three blue lines in the histograms below indicate the dates of baiting, adding nets, and the first capture event respectively. 
 ```{r, cache=TRUE}
 #histogram of number of unique vistors to Boat Ramp by sampling day
 start_date<-as.POSIXct("2019-07-23 12:00:00 CDT")

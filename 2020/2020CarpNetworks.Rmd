@@ -1,0 +1,1634 @@
+---
+title: "2020 Carp Networks"
+author: "Lauren White"
+date: "3/18/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning = FALSE, cache=TRUE)
+```
+
+
+## Load libraries, load data, clean data
+
+
+```{r}
+library(dplyr)
+library(stringr)
+library(lubridate)
+library(Matrix)
+library(igraph)
+library(bipartite)
+library(data.table)
+library(ggplot2)
+library(gganimate)
+library(tidyr)
+library(viridis)
+library(asnipe)
+set.seed(1234)
+
+#Capture data from 2019/2020: refromat capture date as POISXct; retain PIT#, species, and capture date
+pit_capture <-read.csv("All_PIT.csv", stringsAsFactors = FALSE, colClasses = "character")
+pit_capture<- select(pit_capture, c(Lake, PIT, Length, Sex))
+pit_capture$PIT<-as.character(pit_capture$PIT)
+pit_capture<-pit_capture[!apply(pit_capture == "", 1, all),] #remove empty rows from initial read in
+pit_capture<-pit_capture[which(pit_capture$Lake=="Parley"),]#limit to Lake Parley
+head(pit_capture)
+length(unique(pit_capture$PIT))
+
+
+#Read in individual site data logs
+s1 <-read.csv("SITE_1_2020.csv")
+s2 <-read.csv("SITE_2_2020.csv")
+s3 <-read.csv("SITE_3_2020.csv")
+s4 <-read.csv("SITE_4_2020.csv")
+s5 <-read.csv("SITE_5_2020.csv")
+s6 <-read.csv("SITE_6_2020.csv")
+s7 <-read.csv("SITE_7_2020.csv")
+s8 <-read.csv("SITE_8_2020.csv")
+
+all_sites <- rbind(s1,s2,s3,s4,s5,s6,s7,s8, Fill=NA)
+# all_sites$PIT<-str_sub(all_sites$X, -6, -1) #note that in original data set length of some abbreviated pit numbers was only five characters (e.g #38305)
+all_sites<-select(all_sites, c(Date, Time, PIT, Site))
+all_sites$DATETIME<- as.POSIXct(paste(all_sites$Date,all_sites$Time), format='%m/%d/%y %I:%M:%S %p', tz="CDT") #Reformat as POSIXct
+all_sites$PIT<-as.character(all_sites$PIT)
+all_sites$Site<-as.character(all_sites$Site)
+all_sites<-all_sites[-which(is.na(all_sites$PIT)),]
+head(all_sites)
+
+merged_all_sites<- merge(all_sites, pit_capture,  by="PIT")
+head(merged_all_sites)
+
+merged_s1<-merged_all_sites[which(merged_all_sites$Site=="1"),]
+merged_s2<-merged_all_sites[which(merged_all_sites$Site=="2"),]
+merged_s3<-merged_all_sites[which(merged_all_sites$Site=="3"),]
+merged_s4<-merged_all_sites[which(merged_all_sites$Site=="4"),]
+merged_s5<-merged_all_sites[which(merged_all_sites$Site=="5"),]
+merged_s6<-merged_all_sites[which(merged_all_sites$Site=="6"),]
+merged_s7<-merged_all_sites[which(merged_all_sites$Site=="7"),]
+merged_s8<-merged_all_sites[which(merged_all_sites$Site=="8"),]
+
+#Site 1  
+s1 <-read.csv("SITE_1_2020.csv") 
+# s1$PIT<-str_sub(s1$X, -6, -1) #note that
+# in original data set length of some abbreviated pit numbers was only five characters
+s1<-select(s1, c(Date, Time, PIT, Site))
+s1$DATETIME<- as.POSIXct(paste(s1$Date,s1$Time), format='%m/%d/%y %I:%M:%S %p', tz="CDT")
+# #Reformat as POSIXct
+s1$PIT<-as.character(s1$PIT) #toString(boatramp$PIT)
+merged_s1_test<- merge(s1, pit_capture,  by="PIT")
+length(unique(s1$PIT))
+length(unique(merged_s1$PIT))
+```
+
+### Data collection
+In total, 170 unique individuals were recorded across 8 sites in Lake Parley the 2020 season.
+```{r}
+ #how many uniquely tagged carp total and at each site?
+(length(unique(merged_all_sites$PIT)))
+(length(unique(merged_all_sites$PIT[which(merged_all_sites$Site=='1')])))
+(length(unique(merged_all_sites$PIT[which(merged_all_sites$Site=='2')])))
+(length(unique(merged_all_sites$PIT[which(merged_all_sites$Site=='3')])))
+(length(unique(merged_all_sites$PIT[which(merged_all_sites$Site=='4')])))
+(length(unique(merged_all_sites$PIT[which(merged_all_sites$Site=='5')])))
+(length(unique(merged_all_sites$PIT[which(merged_all_sites$Site=='6')])))
+(length(unique(merged_all_sites$PIT[which(merged_all_sites$Site=='7')])))
+(length(unique(merged_all_sites$PIT[which(merged_all_sites$Site=='8')])))
+```
+
+```{r func_num_visits, cache= TRUE}
+#' Define function to calculate number of visits per site
+#' @param df- dataframe with $PIT ID column
+#' @param num_days- number of days over which to loop
+#' @param start_date- day at which to start looop
+#' @return superfish df
+calc_nvisit<-function(df,num_days,start_date){
+  superfish<-data.frame(fishID=unique(df$PIT), nvisit=rep(NA,length(unique(df$PIT)))) 
+
+for (i in 1:length(unique(df$PIT))){
+    fishID<-unique(df$PIT)[i]
+    visit_count<-0
+    for (j in 1:num_days){
+        sub_combined<-df %>% filter(DATETIME >= as.POSIXct(start_date+ (j-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + j*86400, tz="CDT")) #86400 seconds/24 hours
+        fishID %in% sub_combined$PIT
+    if(fishID %in% sub_combined$PIT){
+      visit_count<-visit_count+1
+    }
+    }
+    superfish$nvisit[i]<-visit_count
+}
+  return(superfish)
+}
+```
+
+## Results
+### Bipartite networks for Lake Parley 2020 season
+```{r bipartite, cache=TRUE}
+#Bipartite network for boat ramp site
+edgelist<-data.frame(PIT=merged_all_sites$PIT, Reader=merged_all_sites$Site)
+
+A <- spMatrix(nrow=length(unique(edgelist$PIT)),
+        ncol=length(unique(edgelist$Reader)),
+        i = as.numeric(factor(edgelist$PIT)),
+        j = as.numeric(factor(edgelist$Reader)),
+        x = rep(1, length(as.numeric(edgelist$PIT))) )
+row.names(A) <- levels(factor(edgelist$PIT))
+colnames(A) <- levels(factor(edgelist$Reader))
+
+
+
+#using carp data
+bi<-graph.incidence(A, mode="all") #undirected, named graph that is bipartite
+pr<-bipartite.projection(bi, multiplicity=TRUE) 
+#co-membership network of nodes ($proj1), or a network of groups that share members ($proj2)
+
+# get.adjacency(pr$proj1,sparse=FALSE,attr="weight")
+h<-pr$proj2
+l3 <-layout.circle(h)
+plot.igraph(h,vertex.label=V(h)$name,layout=l3,edge.width=E(h)$weight/10^8, edge.color="black")
+
+# visweb(t(A), circles=TRUE,  boxes=FALSE,  labsize=1, circle.max=1.5, text="no", plotsize= 18)
+plotweb(as.matrix(A), text.rot=90, labsize=1, low.lablength = 6, text.low.col="black")
+```
+
+
+### Number of visits through time
+Below we show the number of visits through time for eight sites in Lake Parley for the 2020 season from June 23- September 9, 2020. The two blue lines in the histograms below indicate the dates of baiting (July 3, 2020) and adding nets plus the first capture event respectively (July 23, 2020).
+
+```{r}
+#histogram of number of unique visitors by sampling day
+start_date<-as.POSIXct("2020-06-23 12:00:00 CDT")
+end_date<-as.POSIXct("2020-09-09 23:59:59 CDT")
+
+visits_through_time<-function(start_date,end_date, merged_df, site_name){
+
+num_days<-as.numeric(end_date-start_date)
+sampling_df <-data.frame(day=1:num_days, uniqueID=rep(NA, num_days))
+degree_list<-NULL
+
+for(i in 1:num_days){
+  sub_combined<-merged_df %>% filter(DATETIME >= as.POSIXct(start_date+ (i-1)*86400, tz="CDT") & DATETIME <= as.POSIXct(start_date + i*86400, tz="CDT")) #86400 seconds/24 hours
+  # print(sub_combined)
+  sampling_df$uniqueID[i]<-length(unique(sub_combined$PIT))
+  PITs<-unique(sub_combined$PIT)
+  if(length(PITs)>0){
+  carp.degree<-data.frame(PITs, numsites= rep(NA, length(PITs)))
+      for(j in 1:length(PITs)){
+        carp.degree$numsites[j]<-length(unique(sub_combined$Antenna[which(sub_combined$PIT==PITs[j])]))
+      }
+  degree_list[[i]]<-carp.degree
+  }
+}
+
+sampling_df$uniqueID<-as.numeric(sampling_df$uniqueID)
+barplot(uniqueID ~day, data=sampling_df, xlab="Sampling Day", ylab="Number of unique carp", main=paste(site_name, expression("Number of unique carp detected per day")))
+abline (v = 10, col="blue") #corn/bait, July 3, 2020
+abline (v= 30, col="blue") #net deployed and capture attempt, July 23, 2020
+}
+
+visits_through_time(start_date=start_date, end_date=end_date, merged_df=merged_s1, site_name="Site 1:")
+visits_through_time(start_date=start_date, end_date=end_date, merged_df=merged_s2, site_name="Site 2:")
+visits_through_time(start_date=start_date, end_date=end_date, merged_df=merged_s3, site_name="Site 3:")
+visits_through_time(start_date=start_date, end_date=end_date, merged_df=merged_s4, site_name="Site 4:")
+visits_through_time(start_date=start_date, end_date=end_date, merged_df=merged_s5, site_name="Site 5:")
+visits_through_time(start_date=start_date, end_date=end_date, merged_df=merged_s6, site_name="Site 6:")
+visits_through_time(start_date=start_date, end_date=end_date, merged_df=merged_s7, site_name="Site 7:")
+visits_through_time(start_date=start_date, end_date=end_date, merged_df=merged_s8, site_name="Site 8:")
+
+```
+
+### Visits during baiting period
+In these plots, individual visits of unique carp are shown through time at each site. 
+
+```{r exp_phases, cache= TRUE}
+#subdivide data based on phases of experiment
+#corn/bait, July 3, 2020
+#first net deployment and capture attempt, July 23, 2020- 10 AM
+
+# min(merged_br$DATETIME)
+# max(merged_br$DATETIME)
+
+s1_corn<- merged_s1 %>% filter(DATETIME >=as.POSIXct("2020-07-03 12:00:00", tz="CDT") & DATETIME < as.POSIXct("2020-07-23 12:00:00", tz="CDT"))
+s2_corn<- merged_s2 %>% filter(DATETIME >=as.POSIXct("2020-07-03 12:00:00", tz="CDT") & DATETIME < as.POSIXct("2020-07-23 12:00:00", tz="CDT"))
+s3_corn<- merged_s3 %>% filter(DATETIME >=as.POSIXct("2020-07-03 12:00:00", tz="CDT") & DATETIME < as.POSIXct("2020-07-23 12:00:00", tz="CDT"))
+s4_corn<- merged_s4 %>% filter(DATETIME >=as.POSIXct("2020-07-03 12:00:00", tz="CDT") & DATETIME < as.POSIXct("2020-07-23 12:00:00", tz="CDT"))
+s5_corn<- merged_s5 %>% filter(DATETIME >=as.POSIXct("2020-07-03 12:00:00", tz="CDT") & DATETIME < as.POSIXct("2020-07-23 12:00:00", tz="CDT"))
+s6_corn<- merged_s6 %>% filter(DATETIME >=as.POSIXct("2020-07-03 12:00:00", tz="CDT") & DATETIME < as.POSIXct("2020-07-23 12:00:00", tz="CDT"))
+s7_corn<- merged_s7 %>% filter(DATETIME >=as.POSIXct("2020-07-03 12:00:00", tz="CDT") & DATETIME < as.POSIXct("2020-07-23 12:00:00", tz="CDT"))
+s8_corn<- merged_s8 %>% filter(DATETIME >=as.POSIXct("2020-07-03 12:00:00", tz="CDT") & DATETIME < as.POSIXct("2020-07-23 12:00:00", tz="CDT"))
+```
+
+
+
+```{r time_course, cache=TRUE}
+#time course of individual carp visits to each site during baiting period (July 3rd- July 23rd 2020)
+ggplot(data=s1_corn, aes(DATETIME, as.factor(PIT))) +
+  geom_point(alpha=0.5)+
+  scale_x_datetime(date_breaks="1 day")+
+  ggtitle("Site 1")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text.y=element_text(size=6), axis.title = element_text(size=10))
+
+ggplot(data=s2_corn, aes(DATETIME, as.factor(PIT))) +
+  geom_point(alpha=0.5)+
+  scale_x_datetime(date_breaks="1 day")+
+  ggtitle("Site 2")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text.y=element_text(size=6), axis.title = element_text(size=10))
+
+ggplot(data=s3_corn, aes(DATETIME, as.factor(PIT))) +
+  geom_point(alpha=0.5)+
+  scale_x_datetime(date_breaks="1 day")+
+  ggtitle("Site 3")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text.y=element_text(size=6), axis.title = element_text(size=10))
+
+ggplot(data=s4_corn, aes(DATETIME, as.factor(PIT))) +
+  geom_point(alpha=0.5)+
+  scale_x_datetime(date_breaks="1 day")+
+  ggtitle("Site 4")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text.y=element_text(size=6), axis.title = element_text(size=10))
+
+ggplot(data=s5_corn, aes(DATETIME, as.factor(PIT))) +
+  geom_point(alpha=0.5)+
+  scale_x_datetime(date_breaks="1 day")+
+  ggtitle("Site 5")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text.y=element_text(size=6), axis.title = element_text(size=10))
+
+ggplot(data=s6_corn, aes(DATETIME, as.factor(PIT))) +
+  geom_point(alpha=0.5)+
+  scale_x_datetime(date_breaks="1 day")+
+  ggtitle("Site 6")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text.y=element_text(size=6), axis.title = element_text(size=10))
+
+ggplot(data=s7_corn, aes(DATETIME, as.factor(PIT))) +
+  geom_point(alpha=0.5)+
+  scale_x_datetime(date_breaks="1 day")+
+  ggtitle("Site 7")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text.y=element_text(size=6), axis.title = element_text(size=10))
+
+ggplot(data=s8_corn, aes(DATETIME, as.factor(PIT))) +
+  geom_point(alpha=0.5)+
+  scale_x_datetime(date_breaks="1 day")+
+  ggtitle("Site 8")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme(axis.text.x=element_text(angle=90), axis.text.y=element_text(size=6), axis.title = element_text(size=10))
+```
+
+### Superfeeders and feeding preference
+Below we show histograms for the number of sampling days for all eight sites. 
+
+```{r superfeeders, cache=TRUE}
+start_date<-as.POSIXct("2020-07-03 12:00:00 CDT") #rounded to nearest midday
+end_date<-as.POSIXct("2020-07-23 12:00:00 CDT")
+
+num_days<-as.numeric(end_date-start_date)
+
+#Histogram of the number of sampling days each fish visits Site 1
+superfish_s1<-calc_nvisit(df=s1_corn, num_days=num_days, start_date=start_date)
+ggplot(superfish_s1,aes(nvisit)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of sampling days")+
+  ylab("Number of unique fish")+
+  ggtitle("Site 1: Baiting Period")
+
+#Histogram of the number of sampling days each fish visits Site 2
+superfish_s2<-calc_nvisit(df=s2_corn, num_days=num_days, start_date=start_date)
+ggplot(superfish_s2,aes(nvisit)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of sampling days")+
+  ylab("Number of unique fish")+
+  ggtitle("Site 2: Baiting Period")
+
+#Histogram of the number of sampling days each fish visits Site 3
+superfish_s3<-calc_nvisit(df=s3_corn, num_days=num_days, start_date=start_date)
+ggplot(superfish_s3,aes(nvisit)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of sampling days")+
+  ylab("Number of unique fish")+
+  ggtitle("Site 3: Baiting Period")
+
+#Histogram of the number of sampling days each fish visits Site 4
+superfish_s4<-calc_nvisit(df=s4_corn, num_days=num_days, start_date=start_date)
+ggplot(superfish_s4,aes(nvisit)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of sampling days")+
+  ylab("Number of unique fish")+
+  ggtitle("Site 4: Baiting Period")
+
+#Histogram of the number of sampling days each fish visits Site 5
+superfish_s5<-calc_nvisit(df=s5_corn, num_days=num_days, start_date=start_date)
+ggplot(superfish_s5,aes(nvisit)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of sampling days")+
+  ylab("Number of unique fish")+
+  ggtitle("Site 5: Baiting Period")
+
+#Histogram of the number of sampling days each fish visits Site 6
+superfish_s6<-calc_nvisit(df=s6_corn, num_days=num_days, start_date=start_date)
+ggplot(superfish_s6,aes(nvisit)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of sampling days")+
+  ylab("Number of unique fish")+
+  ggtitle("Site 6: Baiting Period")
+
+#Histogram of the number of sampling days each fish visits Site 7
+superfish_s7<-calc_nvisit(df=s7_corn, num_days=num_days, start_date=start_date)
+ggplot(superfish_s7,aes(nvisit)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of sampling days")+
+  ylab("Number of unique fish")+
+  ggtitle("Site 7: Baiting Period")
+
+#Histogram of the number of sampling days each fish visits Site 8
+superfish_s8<-calc_nvisit(df=s8_corn, num_days=num_days, start_date=start_date)
+ggplot(superfish_s8,aes(nvisit)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of sampling days")+
+  ylab("Number of unique fish")+
+  ggtitle("Site 8: Baiting Period")
+
+```
+
+We also combine visits by site and show the relative proportion of visits to each site per fish. We highlight “superfeeders”–those fish accounting for the top 20% of total visits to the left of the vertical black line.
+
+```{r superfeeders2, cache=TRUE}
+#Combined plot showing site preference and number of detected visits by fish
+superfish_s1$Site<-"Site1"
+superfish_s2$Site<-"Site2"
+superfish_s3$Site<-"Site3"
+superfish_s4$Site<-"Site4"
+superfish_s5$Site<-"Site5"
+superfish_s6$Site<-"Site6"
+superfish_s7$Site<-"Site7"
+superfish_s8$Site<-"Site8"
+
+all_superfish <- rbind(superfish_s1,superfish_s2,superfish_s3,superfish_s4,superfish_s5,superfish_s6,superfish_s7,superfish_s8, Fill=NA)
+all_superfish<-na.omit(all_superfish)
+superfish_wide <- spread(all_superfish, Site, nvisit) #convert from long to wide data format
+# superfish_wide <- subset(superfish_wide,select = fishID:Site8)
+superfish_wide[is.na(superfish_wide)] <- 0 #convert NAs to zero
+superfish_wide$total <- rowSums(superfish_wide[2:9])
+superfish_wide<-superfish_wide[order(superfish_wide$total, decreasing=TRUE),]
+
+all_superfish$fishID <- factor(all_superfish$fishID, levels = superfish_wide$fishID[order(superfish_wide$total, decreasing=TRUE)])
+
+top20<-round(length(levels(all_superfish$fishID))*.2)
+cutoff<-levels(all_superfish$fishID)[top20]
+
+ggplot(all_superfish, aes(fill=Site, y=nvisit, x=fishID))+ 
+    geom_col()+
+    theme(axis.text.x = element_text(size=6, angle = 90, hjust = 1))+
+    scale_fill_viridis(discrete=TRUE, name = "Site", labels = c("Site 1", "Site 2", "Site 3", "Site 4", "Site 5", "Site 6", "Site 7", "Site 8"))+
+    labs(y= "Visits", x = "Carp ID")+
+    geom_vline(xintercept=which(levels(all_superfish$fishID) == cutoff))
+```
+
+### Average group size and feeding bout duration
+Below we show histograms for average group size during feeding for sites 1-8, as well as all sites combined, as detected by Gaussian mixed models (GMM).
+
+```{r gbi_site1, cache=TRUE, include=FALSE, eval=FALSE}
+set.seed(1234)
+s1_corn<-s1_corn[order(s1_corn$DATETIME),] #order chronologically
+# s1_corn<-s1_corn[1:2000,] #limit number of points for analysis
+Time<-vector(mode="integer", length=nrow(s1_corn)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(s1_corn))
+for(i in 1:nrow(s1_corn)){
+  Time[i]<-as.integer(difftime(s1_corn$DATETIME[i],s1_corn$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(s1_corn$DATETIME[i],s1_corn$DATETIME[1],units='days'))
+}
+identified_individuals_s1<-data.frame(Date=Date, Time=Time, ID=s1_corn$PIT, Location=s1_corn$Site)
+identified_individuals_s1$Loc_date <-
+  paste(identified_individuals_s1$Location,
+        identified_individuals_s1$Date,sep="_")
+head(identified_individuals_s1)
+
+global_ids_s1 <- unique(identified_individuals_s1$ID)
+
+# Generate GMM data
+start.time <- Sys.time()
+
+gmm_data_s1 <- gmmevents(time=identified_individuals_s1$Time,
+                      identity=identified_individuals_s1$ID,
+                      location=identified_individuals_s1$Loc_date,
+                      global_ids=global_ids_s1)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Extract output
+gbi_s1 <- gmm_data_s1$gbi
+# gbi_s1 <- gbi_s1[,which(colSums(gbi_s1)>0)]
+solo<-which(rowSums(gbi_s1)<=1)
+gbi_s1<-gbi_s1[-solo,]
+events_s1 <- gmm_data_s1$metadata
+events_s1 <- events_s1[-solo,]
+observations_per_event_s1 <- gmm_data_s1$B
+observations_per_event_s1<-observations_per_event_s1[-solo,]
+
+dim(gbi_s1)
+
+# Split up location and date data
+tmp <- strsplit(events_s1$Location,"_")
+tmp <- do.call("rbind",tmp)
+events_s1$Location <- tmp[,1]
+events_s1$Date <- tmp[,2]
+events_s1$midpoint<-(events_s1$Start-events_s1$End)/2+events_s1$Start #equivalent to "times" in example
+# times<-events$midpoint
+# names(times)<-1:length(times)
+head(events_s1)
+
+saveRDS(gbi_s1, file = "gbi_s1.RDS") 
+saveRDS(events_s1, file = "events_s1.RDS") 
+
+```
+
+```{r gbi_site2, cache=TRUE, include=FALSE, eval=FALSE}
+set.seed(1234)
+s2_corn<-s2_corn[order(s2_corn$DATETIME),] #order chronologically
+# s2_corn<-s2_corn[1:2000,] #limit number of points for analysis
+Time<-vector(mode="integer", length=nrow(s2_corn)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(s2_corn))
+for(i in 1:nrow(s2_corn)){
+  Time[i]<-as.integer(difftime(s2_corn$DATETIME[i],s2_corn$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(s2_corn$DATETIME[i],s2_corn$DATETIME[1],units='days'))
+}
+identified_individuals_s2<-data.frame(Date=Date, Time=Time, ID=s2_corn$PIT, Location=s2_corn$Site)
+identified_individuals_s2$Loc_date <-
+  paste(identified_individuals_s2$Location,
+        identified_individuals_s2$Date,sep="_")
+head(identified_individuals_s2)
+
+global_ids_s2 <- unique(identified_individuals_s2$ID)
+
+# Generate GMM data
+start.time <- Sys.time()
+
+gmm_data_s2 <- gmmevents(time=identified_individuals_s2$Time,
+                      identity=identified_individuals_s2$ID,
+                      location=identified_individuals_s2$Loc_date,
+                      global_ids=global_ids_s2)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Extract output
+gbi_s2 <- gmm_data_s2$gbi
+# gbi_s2 <- gbi_s2[,which(colSums(gbi_s2)>0)]
+solo<-which(rowSums(gbi_s2)<=1)
+gbi_s2<-gbi_s2[-solo,]
+events_s2 <- gmm_data_s2$metadata
+events_s2 <- events_s2[-solo,]
+observations_per_event_s2 <- gmm_data_s2$B
+observations_per_event_s2<-observations_per_event_s2[-solo,]
+
+dim(gbi_s2)
+
+# Split up location and date data
+tmp <- strsplit(events_s2$Location,"_")
+tmp <- do.call("rbind",tmp)
+events_s2$Location <- tmp[,1]
+events_s2$Date <- tmp[,2]
+events_s2$midpoint<-(events_s2$Start-events_s2$End)/2+events_s2$Start #equivalent to "times" in example
+# times<-events$midpoint
+# names(times)<-1:length(times)
+head(events_s2)
+
+saveRDS(gbi_s2, file = "gbi_s2.RDS") 
+saveRDS(events_s2, file = "events_s2.RDS") 
+
+```
+
+```{r gbi_site3, cache=TRUE, include=FALSE, eval=FALSE}
+set.seed(1234)
+s3_corn<-s3_corn[order(s3_corn$DATETIME),] #order chronologically
+# s3_corn<-s3_corn[1:2000,] #limit number of points for analysis
+Time<-vector(mode="integer", length=nrow(s3_corn)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(s3_corn))
+for(i in 1:nrow(s3_corn)){
+  Time[i]<-as.integer(difftime(s3_corn$DATETIME[i],s3_corn$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(s3_corn$DATETIME[i],s3_corn$DATETIME[1],units='days'))
+}
+identified_individuals_s3<-data.frame(Date=Date, Time=Time, ID=s3_corn$PIT, Location=s3_corn$Site)
+identified_individuals_s3$Loc_date <-
+  paste(identified_individuals_s3$Location,
+        identified_individuals_s3$Date,sep="_")
+head(identified_individuals_s3)
+
+global_ids_s3 <- unique(identified_individuals_s3$ID)
+
+# Generate GMM data
+start.time <- Sys.time()
+
+gmm_data_s3 <- gmmevents(time=identified_individuals_s3$Time,
+                      identity=identified_individuals_s3$ID,
+                      location=identified_individuals_s3$Loc_date,
+                      global_ids=global_ids_s3)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Extract output
+gbi_s3 <- gmm_data_s3$gbi
+# gbi_s3 <- gbi_s3[,which(colSums(gbi_s3)>0)]
+solo<-which(rowSums(gbi_s3)<=1)
+gbi_s3<-gbi_s3[-solo,]
+events_s3 <- gmm_data_s3$metadata
+events_s3 <- events_s3[-solo,]
+observations_per_event_s3 <- gmm_data_s3$B
+observations_per_event_s3<-observations_per_event_s3[-solo,]
+
+dim(gbi_s3)
+
+# Split up location and date data
+tmp <- strsplit(events_s3$Location,"_")
+tmp <- do.call("rbind",tmp)
+events_s3$Location <- tmp[,1]
+events_s3$Date <- tmp[,2]
+events_s3$midpoint<-(events_s3$Start-events_s3$End)/2+events_s3$Start #equivalent to "times" in example
+# times<-events$midpoint
+# names(times)<-1:length(times)
+head(events_s3)
+
+saveRDS(gbi_s3, file = "gbi_s3.RDS") 
+saveRDS(events_s3, file = "events_s3.RDS") 
+
+```
+
+```{r gbi_site4, cache=TRUE, include=FALSE, eval=FALSE}
+set.seed(1234)
+s4_corn<-s4_corn[order(s4_corn$DATETIME),] #order chronologically
+# s4_corn<-s4_corn[1:2000,] #limit number of points for analysis
+Time<-vector(mode="integer", length=nrow(s4_corn)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(s4_corn))
+for(i in 1:nrow(s4_corn)){
+  Time[i]<-as.integer(difftime(s4_corn$DATETIME[i],s4_corn$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(s4_corn$DATETIME[i],s4_corn$DATETIME[1],units='days'))
+}
+identified_individuals_s4<-data.frame(Date=Date, Time=Time, ID=s4_corn$PIT, Location=s4_corn$Site)
+identified_individuals_s4$Loc_date <-
+  paste(identified_individuals_s4$Location,
+        identified_individuals_s4$Date,sep="_")
+head(identified_individuals_s4)
+
+global_ids_s4 <- unique(identified_individuals_s4$ID)
+
+# Generate GMM data
+start.time <- Sys.time()
+
+gmm_data_s4 <- gmmevents(time=identified_individuals_s4$Time,
+                      identity=identified_individuals_s4$ID,
+                      location=identified_individuals_s4$Loc_date,
+                      global_ids=global_ids_s4)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Extract output
+gbi_s4 <- gmm_data_s4$gbi
+# gbi_s4 <- gbi_s4[,which(colSums(gbi_s4)>0)]
+solo<-which(rowSums(gbi_s4)<=1)
+gbi_s4<-gbi_s4[-solo,]
+events_s4 <- gmm_data_s4$metadata
+events_s4 <- events_s4[-solo,]
+observations_per_event_s4 <- gmm_data_s4$B
+observations_per_event_s4<-observations_per_event_s4[-solo,]
+
+dim(gbi_s4)
+
+# Split up location and date data
+tmp <- strsplit(events_s4$Location,"_")
+tmp <- do.call("rbind",tmp)
+events_s4$Location <- tmp[,1]
+events_s4$Date <- tmp[,2]
+events_s4$midpoint<-(events_s4$Start-events_s4$End)/2+events_s4$Start #equivalent to "times" in example
+# times<-events$midpoint
+# names(times)<-1:length(times)
+head(events_s4)
+
+saveRDS(gbi_s4, file = "gbi_s4.RDS") 
+saveRDS(events_s4, file = "events_s4.RDS") 
+```
+
+```{r gbi_site5, cache=TRUE, include=FALSE, eval=FALSE}
+set.seed(1234)
+s5_corn<-s5_corn[order(s5_corn$DATETIME),] #order chronologically
+# s5_corn<-s5_corn[1:2000,] #limit number of points for analysis
+Time<-vector(mode="integer", length=nrow(s5_corn)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(s5_corn))
+for(i in 1:nrow(s5_corn)){
+  Time[i]<-as.integer(difftime(s5_corn$DATETIME[i],s5_corn$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(s5_corn$DATETIME[i],s5_corn$DATETIME[1],units='days'))
+}
+identified_individuals_s5<-data.frame(Date=Date, Time=Time, ID=s5_corn$PIT, Location=s5_corn$Site)
+identified_individuals_s5$Loc_date <-
+  paste(identified_individuals_s5$Location,
+        identified_individuals_s5$Date,sep="_")
+head(identified_individuals_s5)
+
+global_ids_s5 <- unique(identified_individuals_s5$ID)
+
+# Generate GMM data
+start.time <- Sys.time()
+
+gmm_data_s5 <- gmmevents(time=identified_individuals_s5$Time,
+                      identity=identified_individuals_s5$ID,
+                      location=identified_individuals_s5$Loc_date,
+                      global_ids=global_ids_s5)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Extract output
+gbi_s5 <- gmm_data_s5$gbi
+# gbi_s5 <- gbi_s5[,which(colSums(gbi_s5)>0)]
+solo<-which(rowSums(gbi_s5)<=1)
+gbi_s5<-gbi_s5[-solo,]
+events_s5 <- gmm_data_s5$metadata
+events_s5 <- events_s5[-solo,]
+observations_per_event_s5 <- gmm_data_s5$B
+observations_per_event_s5<-observations_per_event_s5[-solo,]
+
+dim(gbi_s5)
+
+# Split up location and date data
+tmp <- strsplit(events_s5$Location,"_")
+tmp <- do.call("rbind",tmp)
+events_s5$Location <- tmp[,1]
+events_s5$Date <- tmp[,2]
+events_s5$midpoint<-(events_s5$Start-events_s5$End)/2+events_s5$Start #equivalent to "times" in example
+# times<-events$midpoint
+# names(times)<-1:length(times)
+head(events_s5)
+
+saveRDS(gbi_s5, file = "gbi_s5.RDS") 
+saveRDS(events_s5, file = "events_s5.RDS") 
+```
+
+```{r gbi_site6, cache=TRUE, include=FALSE, eval=FALSE}
+set.seed(1234)
+s6_corn<-s6_corn[order(s6_corn$DATETIME),] #order chronologically
+# s6_corn<-s6_corn[1:2000,] #limit number of points for analysis
+Time<-vector(mode="integer", length=nrow(s6_corn)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(s6_corn))
+for(i in 1:nrow(s6_corn)){
+  Time[i]<-as.integer(difftime(s6_corn$DATETIME[i],s6_corn$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(s6_corn$DATETIME[i],s6_corn$DATETIME[1],units='days'))
+}
+identified_individuals_s6<-data.frame(Date=Date, Time=Time, ID=s6_corn$PIT, Location=s6_corn$Site)
+identified_individuals_s6$Loc_date <-
+  paste(identified_individuals_s6$Location,
+        identified_individuals_s6$Date,sep="_")
+head(identified_individuals_s6)
+
+global_ids_s6 <- unique(identified_individuals_s6$ID)
+
+# Generate GMM data
+start.time <- Sys.time()
+
+gmm_data_s6 <- gmmevents(time=identified_individuals_s6$Time,
+                      identity=identified_individuals_s6$ID,
+                      location=identified_individuals_s6$Loc_date,
+                      global_ids=global_ids_s6)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Extract output
+gbi_s6 <- gmm_data_s6$gbi
+# gbi_s6 <- gbi_s6[,which(colSums(gbi_s6)>0)]
+solo<-which(rowSums(gbi_s6)<=1)
+gbi_s6<-gbi_s6[-solo,]
+events_s6 <- gmm_data_s6$metadata
+events_s6 <- events_s6[-solo,]
+observations_per_event_s6 <- gmm_data_s6$B
+observations_per_event_s6<-observations_per_event_s6[-solo,]
+
+dim(gbi_s6)
+
+# Split up location and date data
+tmp <- strsplit(events_s6$Location,"_")
+tmp <- do.call("rbind",tmp)
+events_s6$Location <- tmp[,1]
+events_s6$Date <- tmp[,2]
+events_s6$midpoint<-(events_s6$Start-events_s6$End)/2+events_s6$Start #equivalent to "times" in example
+# times<-events$midpoint
+# names(times)<-1:length(times)
+head(events_s6)
+
+saveRDS(gbi_s6, file = "gbi_s6.RDS") 
+saveRDS(events_s6, file = "events_s6.RDS") 
+```
+
+```{r gbi_site7, cache=TRUE, include=FALSE, eval=FALSE}
+set.seed(1234)
+s7_corn<-s7_corn[order(s7_corn$DATETIME),] #order chronologically
+# s7_corn<-s7_corn[1:2000,] #limit number of points for analysis
+Time<-vector(mode="integer", length=nrow(s7_corn)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(s7_corn))
+for(i in 1:nrow(s7_corn)){
+  Time[i]<-as.integer(difftime(s7_corn$DATETIME[i],s7_corn$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(s7_corn$DATETIME[i],s7_corn$DATETIME[1],units='days'))
+}
+identified_individuals_s7<-data.frame(Date=Date, Time=Time, ID=s7_corn$PIT, Location=s7_corn$Site)
+identified_individuals_s7$Loc_date <-
+  paste(identified_individuals_s7$Location,
+        identified_individuals_s7$Date,sep="_")
+head(identified_individuals_s7)
+
+global_ids_s7 <- unique(identified_individuals_s7$ID)
+
+# Generate GMM data
+start.time <- Sys.time()
+
+gmm_data_s7 <- gmmevents(time=identified_individuals_s7$Time,
+                      identity=identified_individuals_s7$ID,
+                      location=identified_individuals_s7$Loc_date,
+                      global_ids=global_ids_s7)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Extract output
+gbi_s7 <- gmm_data_s7$gbi
+# gbi_s7 <- gbi_s7[,which(colSums(gbi_s7)>0)]
+solo<-which(rowSums(gbi_s7)<=1)
+gbi_s7<-gbi_s7[-solo,]
+events_s7 <- gmm_data_s7$metadata
+events_s7 <- events_s7[-solo,]
+observations_per_event_s7 <- gmm_data_s7$B
+observations_per_event_s7<-observations_per_event_s7[-solo,]
+
+dim(gbi_s7)
+
+# Split up location and date data
+tmp <- strsplit(events_s7$Location,"_")
+tmp <- do.call("rbind",tmp)
+events_s7$Location <- tmp[,1]
+events_s7$Date <- tmp[,2]
+events_s7$midpoint<-(events_s7$Start-events_s7$End)/2+events_s7$Start #equivalent to "times" in example
+# times<-events$midpoint
+# names(times)<-1:length(times)
+head(events_s7)
+
+saveRDS(gbi_s7, file = "gbi_s7.RDS") 
+saveRDS(events_s7, file = "events_s7.RDS") 
+```
+
+```{r gbi_site8, cache=TRUE, include=FALSE, eval=FALSE}
+set.seed(1234)
+s8_corn<-s8_corn[order(s8_corn$DATETIME),] #order chronologically
+# s8_corn<-s8_corn[1:2000,] #limit number of points for analysis
+Time<-vector(mode="integer", length=nrow(s8_corn)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(s8_corn))
+for(i in 1:nrow(s8_corn)){
+  Time[i]<-as.integer(difftime(s8_corn$DATETIME[i],s8_corn$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(s8_corn$DATETIME[i],s8_corn$DATETIME[1],units='days'))
+}
+identified_individuals_s8<-data.frame(Date=Date, Time=Time, ID=s8_corn$PIT, Location=s8_corn$Site)
+identified_individuals_s8$Loc_date <-
+  paste(identified_individuals_s8$Location,
+        identified_individuals_s8$Date,sep="_")
+head(identified_individuals_s8)
+
+global_ids_s8 <- unique(identified_individuals_s8$ID)
+
+# Generate GMM data
+start.time <- Sys.time()
+
+gmm_data_s8 <- gmmevents(time=identified_individuals_s8$Time,
+                      identity=identified_individuals_s8$ID,
+                      location=identified_individuals_s8$Loc_date,
+                      global_ids=global_ids_s8)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Extract output
+gbi_s8 <- gmm_data_s8$gbi
+# gbi_s8 <- gbi_s8[,which(colSums(gbi_s8)>0)]
+solo<-which(rowSums(gbi_s8)<=1)
+gbi_s8<-gbi_s8[-solo,]
+events_s8 <- gmm_data_s8$metadata
+events_s8 <- events_s8[-solo,]
+observations_per_event_s8 <- gmm_data_s8$B
+observations_per_event_s8<-observations_per_event_s8[-solo,]
+
+dim(gbi_s8)
+
+# Split up location and date data
+tmp <- strsplit(events_s8$Location,"_")
+tmp <- do.call("rbind",tmp)
+events_s8$Location <- tmp[,1]
+events_s8$Date <- tmp[,2]
+events_s8$midpoint<-(events_s8$Start-events_s8$End)/2+events_s8$Start #equivalent to "times" in example
+# times<-events$midpoint
+# names(times)<-1:length(times)
+head(events_s8)
+
+saveRDS(gbi_s8, file = "gbi_s8.RDS") 
+saveRDS(events_s8, file = "events_s8.RDS") 
+```
+
+
+```{r gbi_parley_2020, cache=TRUE, eval= FALSE, include=FALSE}
+set.seed(1234)
+parley<-rbind(s1_corn, s2_corn, s3_corn, s4_corn, s5_corn, s6_corn, s7_corn, s8_corn) #merge baited data across all 8 sites
+parley<-parley[order(parley$DATETIME),] #order chronologically
+# parley<-parley[1000:2000,] #limit number of points for analysis
+Time<-vector(mode="integer", length=nrow(parley)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(parley))
+for(i in 1:nrow(parley)){
+  Time[i]<-as.integer(difftime(parley$DATETIME[i],parley$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(parley$DATETIME[i],parley$DATETIME[1],units='days'))
+}
+
+identified_individuals_parley2020<-data.frame(Date=Date, Time=Time, ID=parley$PIT, Location=parley$Site)
+identified_individuals_parley2020$Loc_date <-
+  paste(identified_individuals_parley2020$Location,
+        identified_individuals_parley2020$Date,sep="_")
+head(identified_individuals_parley2020)
+
+global_ids_parley2020 <- unique(identified_individuals_parley2020$ID)
+
+# Generate GMM data
+start.time <- Sys.time()
+
+gmm_data_parley2020 <- gmmevents(time=identified_individuals_parley2020$Time,
+                      identity=identified_individuals_parley2020$ID,
+                      location=identified_individuals_parley2020$Loc_date,
+                      global_ids=global_ids_parley2020)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Extract output
+gbi_parley2020 <- gmm_data_parley2020$gbi
+# gbi_parley2020 <- gbi_parley2020[,which(colSums(gbi_parley2020)>0)]
+solo<-which(rowSums(gbi_parley2020)<=1)
+gbi_parley2020<-gbi_parley2020[-solo,]
+events_parley2020 <- gmm_data_parley2020$metadata
+events_parley2020 <- events_parley2020[-solo,]
+observations_per_event_parley2020 <- gmm_data_parley2020$B
+observations_per_event_parley2020<-observations_per_event_parley2020[-solo,]
+
+dim(gbi_parley2020)
+
+# Split up location and date data
+tmp <- strsplit(events_parley2020$Location,"_")
+tmp <- do.call("rbind",tmp)
+events_parley2020$Location <- tmp[,1]
+events_parley2020$Date <- tmp[,2]
+events_parley2020$midpoint<-(events_parley2020$Start-events_parley2020$End)/2+events_parley2020$Start #equivalent to "times" in example
+# times<-events$midpoint
+# names(times)<-1:length(times)
+head(events_parley2020)
+saveRDS(gbi_parley2020, file = "gbi_parley2020.RDS") 
+saveRDS(events_parley2020, file = "events_parley2020.RDS")
+```
+
+
+```{r load_gmm}
+events_s1 <- readRDS("~/Carp/2020/events_s1.RDS")
+events_s2 <- readRDS("~/Carp/2020/events_s2.RDS")
+events_s3 <- readRDS("~/Carp/2020/events_s3.RDS")
+events_s4 <- readRDS("~/Carp/2020/events_s4.RDS")
+events_s5 <- readRDS("~/Carp/2020/events_s5.RDS")
+events_s6 <- readRDS("~/Carp/2020/events_s6.RDS")
+events_s7 <- readRDS("~/Carp/2020/events_s7.RDS")
+events_s8 <- readRDS("~/Carp/2020/events_s8.RDS")
+events_parley2020 <- readRDS("~/Carp/2020/events_parley2020.RDS")
+
+gbi_s1 <- readRDS("~/Carp/2020/gbi_s1.RDS")
+gbi_s2 <- readRDS("~/Carp/2020/gbi_s2.RDS")
+gbi_s3 <- readRDS("~/Carp/2020/gbi_s3.RDS")
+gbi_s4 <- readRDS("~/Carp/2020/gbi_s4.RDS")
+gbi_s5 <- readRDS("~/Carp/2020/gbi_s5.RDS")
+gbi_s6 <- readRDS("~/Carp/2020/gbi_s6.RDS")
+gbi_s7 <- readRDS("~/Carp/2020/gbi_s7.RDS")
+gbi_s8 <- readRDS("~/Carp/2020/gbi_s8.RDS")
+gbi_parley2020 <- readRDS("~/Carp/2020/gbi_parley2020.RDS")
+```
+
+```{r s1_groups, cache=TRUE}
+#histogram of group size for Site 1
+s1_gs<-data.frame(bout=1:nrow(gbi_s1), groupsize=rowSums(gbi_s1))
+s1_gs$dur<-events_s1$End-events_s1$Start
+s1_gs$dur_min<-s1_gs$dur/60
+head(s1_gs)
+
+ggplot(s1_gs, aes(groupsize)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of carp per feeding bout")+
+  ylab("Number of times observed")+
+  ggtitle("Site 1: Average group size")
+
+#histogram of feeding bout duration for Site 1
+ggplot(s1_gs, aes(dur_min)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous()+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Site 1: Duration of feeding bout (min)")
+
+mean(s1_gs$dur_min)
+median(s1_gs$dur_min)
+
+#QQ plot of group size vs. bout duration Boat Ramp (separate antenna)
+ggplot(s1_gs, aes(x=dur_min, y=groupsize)) +
+  geom_point(size=2, shape=19, alpha=0.6)+
+  xlab("Bout duration (min)")+
+  ylab("Group size")+
+  ggtitle("Site 1")
+```
+
+```{r s2_groups, cache=TRUE}
+#histogram of group size for Site 2
+s2_gs<-data.frame(bout=1:nrow(gbi_s2), groupsize=rowSums(gbi_s2))
+s2_gs$dur<-events_s2$End-events_s2$Start
+s2_gs$dur_min<-s2_gs$dur/60
+head(s2_gs)
+
+ggplot(s2_gs, aes(groupsize)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of carp per feeding bout")+
+  ylab("Number of times observed")+
+  ggtitle("Site 2: Average group size")
+
+#histogram of feeding bout duration for Site 1
+ggplot(s2_gs, aes(dur_min)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous()+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Site 2: Duration of feeding bout (min)")
+
+mean(s2_gs$dur_min)
+median(s2_gs$dur_min)
+
+#QQ plot of group size vs. bout duration Boat Ramp (separate antenna)
+ggplot(s2_gs, aes(x=dur_min, y=groupsize)) +
+  geom_point(size=2, shape=19, alpha=0.6)+
+  xlab("Bout duration (min)")+
+  ylab("Group size")+
+  ggtitle("Site 2")
+```
+```{r s3_groups, cache=TRUE}
+#histogram of group size for Site 3
+s3_gs<-data.frame(bout=1:nrow(gbi_s3), groupsize=rowSums(gbi_s3))
+s3_gs$dur<-events_s3$End-events_s3$Start
+s3_gs$dur_min<-s3_gs$dur/60
+head(s3_gs)
+
+ggplot(s3_gs, aes(groupsize)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of carp per feeding bout")+
+  ylab("Number of times observed")+
+  ggtitle("Site 3: Average group size")
+
+#histogram of feeding bout duration for Site 1
+ggplot(s3_gs, aes(dur_min)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous()+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Site 3: Duration of feeding bout (min)")
+
+mean(s3_gs$dur_min)
+median(s3_gs$dur_min)
+
+#QQ plot of group size vs. bout duration Boat Ramp (separate antenna)
+ggplot(s3_gs, aes(x=dur_min, y=groupsize)) +
+  geom_point(size=2, shape=19, alpha=0.6)+
+  xlab("Bout duration (min)")+
+  ylab("Group size")+
+  ggtitle("Site 3")
+```
+```{r s4_groups, cache=TRUE}
+#histogram of group size for Site 4
+s4_gs<-data.frame(bout=1:nrow(gbi_s4), groupsize=rowSums(gbi_s4))
+s4_gs$dur<-events_s4$End-events_s4$Start
+s4_gs$dur_min<-s4_gs$dur/60
+head(s4_gs)
+
+ggplot(s4_gs, aes(groupsize)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of carp per feeding bout")+
+  ylab("Number of times observed")+
+  ggtitle("Site 4: Average group size")
+
+#histogram of feeding bout duration for Site 1
+ggplot(s4_gs, aes(dur_min)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous()+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Site 4: Duration of feeding bout (min)")
+
+mean(s4_gs$dur_min)
+median(s4_gs$dur_min)
+
+#QQ plot of group size vs. bout duration Boat Ramp (separate antenna)
+ggplot(s4_gs, aes(x=dur_min, y=groupsize)) +
+  geom_point(size=2, shape=19, alpha=0.6)+
+  xlab("Bout duration (min)")+
+  ylab("Group size")+
+  ggtitle("Site 4")
+```
+
+```{r s5_groups, cache=TRUE}
+#histogram of group size for Site 5
+s5_gs<-data.frame(bout=1:nrow(gbi_s5), groupsize=rowSums(gbi_s5))
+s5_gs$dur<-events_s5$End-events_s5$Start
+s5_gs$dur_min<-s5_gs$dur/60
+head(s5_gs)
+
+ggplot(s5_gs, aes(groupsize)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of carp per feeding bout")+
+  ylab("Number of times observed")+
+  ggtitle("Site 5: Average group size")
+
+#histogram of feeding bout duration for Site 1
+ggplot(s5_gs, aes(dur_min)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous()+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Site 5: Duration of feeding bout (min)")
+
+mean(s5_gs$dur_min)
+median(s5_gs$dur_min)
+
+#QQ plot of group size vs. bout duration Boat Ramp (separate antenna)
+ggplot(s5_gs, aes(x=dur_min, y=groupsize)) +
+  geom_point(size=2, shape=19, alpha=0.6)+
+  xlab("Bout duration (min)")+
+  ylab("Group size")+
+  ggtitle("Site 5")
+```
+
+```{r s6_groups, cache=TRUE}
+#histogram of group size for Site 6
+s6_gs<-data.frame(bout=1:nrow(gbi_s6), groupsize=rowSums(gbi_s6))
+s6_gs$dur<-events_s6$End-events_s6$Start
+s6_gs$dur_min<-s6_gs$dur/60
+head(s6_gs)
+
+ggplot(s6_gs, aes(groupsize)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of carp per feeding bout")+
+  ylab("Number of times observed")+
+  ggtitle("Site 6: Average group size")
+
+#histogram of feeding bout duration for Site 1
+ggplot(s6_gs, aes(dur_min)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous()+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Site 6: Duration of feeding bout (min)")
+
+mean(s6_gs$dur_min)
+median(s6_gs$dur_min)
+
+#QQ plot of group size vs. bout duration Boat Ramp (separate antenna)
+ggplot(s6_gs, aes(x=dur_min, y=groupsize)) +
+  geom_point(size=2, shape=19, alpha=0.6)+
+  xlab("Bout duration (min)")+
+  ylab("Group size")+
+  ggtitle("Site 6")
+```
+
+```{r s7_groups, cache=TRUE}
+#histogram of group size for Site 7
+s7_gs<-data.frame(bout=1:nrow(gbi_s7), groupsize=rowSums(gbi_s7))
+s7_gs$dur<-events_s7$End-events_s7$Start
+s7_gs$dur_min<-s7_gs$dur/60
+head(s7_gs)
+
+ggplot(s7_gs, aes(groupsize)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of carp per feeding bout")+
+  ylab("Number of times observed")+
+  ggtitle("Site 7: Average group size")
+
+#histogram of feeding bout duration for Site 1
+ggplot(s7_gs, aes(dur_min)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous()+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Site 7: Duration of feeding bout (min)")
+
+mean(s7_gs$dur_min)
+median(s7_gs$dur_min)
+
+#QQ plot of group size vs. bout duration Boat Ramp (separate antenna)
+ggplot(s7_gs, aes(x=dur_min, y=groupsize)) +
+  geom_point(size=2, shape=19, alpha=0.6)+
+  xlab("Bout duration (min)")+
+  ylab("Group size")+
+  ggtitle("Site 7")
+```
+
+```{r s8_groups, cache=TRUE}
+#histogram of group size for Site 8
+s8_gs<-data.frame(bout=1:nrow(gbi_s8), groupsize=rowSums(gbi_s8))
+s8_gs$dur<-events_s8$End-events_s8$Start
+s8_gs$dur_min<-s8_gs$dur/60
+head(s8_gs)
+
+ggplot(s8_gs, aes(groupsize)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of carp per feeding bout")+
+  ylab("Number of times observed")+
+  ggtitle("Site 8: Average group size")
+
+#histogram of feeding bout duration for Site 1
+ggplot(s8_gs, aes(dur_min)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous()+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Site 8: Duration of feeding bout (min)")
+
+mean(s8_gs$dur_min)
+median(s8_gs$dur_min)
+
+#QQ plot of group size vs. bout duration Boat Ramp (separate antenna)
+ggplot(s8_gs, aes(x=dur_min, y=groupsize)) +
+  geom_point(size=2, shape=19, alpha=0.6)+
+  xlab("Bout duration (min)")+
+  ylab("Group size")+
+  ggtitle("Site 8")
+```
+
+```{r parley_groups, cache=TRUE}
+#histogram of group size for all of Lake Parley
+parley2020_gs<-data.frame(bout=1:nrow(gbi_parley2020), groupsize=rowSums(gbi_parley2020))
+parley2020_gs$dur<-events_parley2020$End-events_parley2020$Start
+parley2020_gs$dur_min<-parley2020_gs$dur/60
+head(parley2020_gs)
+
+ggplot(parley2020_gs, aes(groupsize)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous(breaks=0:20)+
+  xlab("Number of carp per feeding bout")+
+  ylab("Number of times observed")+
+  ggtitle("Lake Parley: Average group size")
+
+#histogram of feeding bout duration for all of Lake Parley
+ggplot(parley2020_gs, aes(dur_min)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+scale_x_continuous()+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Lake Parley: Duration of feeding bout (min)")
+
+mean(parley2020_gs$dur_min)
+median(parley2020_gs$dur_min)
+
+#QQ plot of group size vs. bout duration Boat Ramp (separate antenna)
+ggplot(parley2020_gs, aes(x=dur_min, y=groupsize)) +
+  geom_point(size=2, shape=19, alpha=0.6)+
+  xlab("Bout duration (min)")+
+  ylab("Group size")+
+  ggtitle("Lake Parley")
+```
+
+## GMM Networks
+Here we show plots of individual networks derived from sites 1-8 and Lake Parley as a whole. This code also produced histograms of weighted degree which reflects both the number of edges (contacts) of a given node, but also the frequency or intensity of those interactions.
+
+### Site 1 Networks
+```{r site1_networks}
+library(asnipe)
+library(igraph)
+
+# Network of Site 1
+identities<-colnames(gbi_s1)
+network <- matrix(0, ncol(gbi_s1), ncol(gbi_s1))
+
+network<- get_network(gbi_s1, data_format="GBI",
+association_index="HWI", identities=identities, times=events_s1$midpoint, start_time=min(events_s1$midpoint), end_time=max(events_s1$midpoint))
+rownames(network)<-identities
+colnames(network)<-identities
+
+net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
+deg_weighted <- graph.strength(net)
+hist(deg_weighted, main="Histogram of Weighted Degree for Site 1 (SRI)")
+V(net)$size <- deg_weighted*10
+plot(net, vertex.color="cyan4", vertex.label=NA, vertex.label.color="black", main="Site 1")
+
+network_stats_s1<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
+igraph::transitivity(net, type="localundirected"))
+network_stats_s1$node_names<-rownames(network_stats_s1)
+
+s1_long<-gather(network_stats_s1, key=network_metric, value=value,
+weighted_degree:transitivity)
+
+ggplot(network_stats_s1, aes(x=weighted_degree, y=betweenness))+
+  geom_point(aes(size=transitivity, alpha=0.5))+
+  xlab("Weighted degree")+
+  ylab("Betweenness")+
+  ggtitle("Site 1: Degree and betweenness")+
+  geom_text(aes(label=node_names),hjust=0, vjust=0)
+```
+
+### Site 2 Networks
+```{r site2_networks}
+library(asnipe)
+library(igraph)
+
+# Network of Site 2
+identities<-colnames(gbi_s2)
+network <- matrix(0, ncol(gbi_s2), ncol(gbi_s2))
+
+network<- get_network(gbi_s2, data_format="GBI",
+association_index="HWI", identities=identities, times=events_s2$midpoint, start_time=min(events_s2$midpoint), end_time=max(events_s2$midpoint))
+rownames(network)<-identities
+colnames(network)<-identities
+
+net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
+deg_weighted <- graph.strength(net)
+hist(deg_weighted, main="Histogram of Weighted Degree for Site 2 (SRI)")
+V(net)$size <- deg_weighted*10
+plot(net, vertex.color="cyan4", vertex.label=NA, vertex.label.color="black", main="Site 2")
+
+network_stats_s2<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
+igraph::transitivity(net, type="localundirected"))
+network_stats_s2$node_names<-rownames(network_stats_s2)
+
+s2_long<-gather(network_stats_s2, key=network_metric, value=value,
+weighted_degree:transitivity)
+
+ggplot(network_stats_s2, aes(x=weighted_degree, y=betweenness))+
+  geom_point(aes(size=transitivity, alpha=0.5))+
+  xlab("Weighted degree")+
+  ylab("Betweenness")+
+  ggtitle("Site 2: Degree and betweenness")+
+  geom_text(aes(label=node_names),hjust=0, vjust=0)
+```
+
+### Site 3 Networks
+```{r site3_networks, cache=TRUE}
+library(asnipe)
+library(igraph)
+
+# Network of Site 3
+identities<-colnames(gbi_s3)
+network <- matrix(0, ncol(gbi_s3), ncol(gbi_s3))
+
+network<- get_network(gbi_s3, data_format="GBI",
+association_index="HWI", identities=identities, times=events_s3$midpoint, start_time=min(events_s3$midpoint), end_time=max(events_s3$midpoint))
+rownames(network)<-identities
+colnames(network)<-identities
+
+net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
+deg_weighted <- graph.strength(net)
+hist(deg_weighted, main="Histogram of Weighted Degree for Site 3 (SRI)")
+V(net)$size <- deg_weighted*10
+plot(net, vertex.color="cyan4", vertex.label=NA, vertex.label.color="black", main="Site 3")
+
+network_stats_s3<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
+igraph::transitivity(net, type="localundirected"))
+network_stats_s3$node_names<-rownames(network_stats_s3)
+
+s3_long<-gather(network_stats_s3, key=network_metric, value=value,
+weighted_degree:transitivity)
+
+ggplot(network_stats_s3, aes(x=weighted_degree, y=betweenness))+
+  geom_point(aes(size=transitivity, alpha=0.5))+
+  xlab("Weighted degree")+
+  ylab("Betweenness")+
+  ggtitle("Site 3: Degree and betweenness")+
+  geom_text(aes(label=node_names),hjust=0, vjust=0)
+```
+
+### Site 4 Networks
+```{r site4_networks}
+library(asnipe)
+library(igraph)
+
+# Network of Site 4
+identities<-colnames(gbi_s4)
+network <- matrix(0, ncol(gbi_s4), ncol(gbi_s4))
+
+network<- get_network(gbi_s4, data_format="GBI",
+association_index="HWI", identities=identities, times=events_s4$midpoint, start_time=min(events_s4$midpoint), end_time=max(events_s4$midpoint))
+rownames(network)<-identities
+colnames(network)<-identities
+
+net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
+deg_weighted <- graph.strength(net)
+hist(deg_weighted, main="Histogram of Weighted Degree for Site 4 (SRI)")
+V(net)$size <- deg_weighted*10
+plot(net, vertex.color="cyan4", vertex.label=NA, vertex.label.color="black", main="Site 4")
+
+network_stats_s4<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
+igraph::transitivity(net, type="localundirected"))
+network_stats_s4$node_names<-rownames(network_stats_s4)
+
+s4_long<-gather(network_stats_s4, key=network_metric, value=value,
+weighted_degree:transitivity)
+
+ggplot(network_stats_s4, aes(x=weighted_degree, y=betweenness))+
+  geom_point(aes(size=transitivity, alpha=0.5))+
+  xlab("Weighted degree")+
+  ylab("Betweenness")+
+  ggtitle("Site 4: Degree and betweenness")+
+  geom_text(aes(label=node_names),hjust=0, vjust=0)
+```
+
+### Site 5 Networks
+```{r site5_networks}
+library(asnipe)
+library(igraph)
+
+# Network of Site 5
+identities<-colnames(gbi_s5)
+network <- matrix(0, ncol(gbi_s5), ncol(gbi_s5))
+
+network<- get_network(gbi_s5, data_format="GBI",
+association_index="HWI", identities=identities, times=events_s5$midpoint, start_time=min(events_s5$midpoint), end_time=max(events_s5$midpoint))
+rownames(network)<-identities
+colnames(network)<-identities
+
+net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
+deg_weighted <- graph.strength(net)
+hist(deg_weighted, main="Histogram of Weighted Degree for Site 5 (SRI)")
+V(net)$size <- deg_weighted*10
+plot(net, vertex.color="cyan4", vertex.label=NA, vertex.label.color="black", main="Site 5")
+
+network_stats_s5<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
+igraph::transitivity(net, type="localundirected"))
+network_stats_s5$node_names<-rownames(network_stats_s5)
+
+s5_long<-gather(network_stats_s5, key=network_metric, value=value,
+weighted_degree:transitivity)
+
+ggplot(network_stats_s5, aes(x=weighted_degree, y=betweenness))+
+  geom_point(aes(size=transitivity, alpha=0.5))+
+  xlab("Weighted degree")+
+  ylab("Betweenness")+
+  ggtitle("Site 5: Degree and betweenness")+
+  geom_text(aes(label=node_names),hjust=0, vjust=0)
+```
+
+### Site 6 Networks
+```{r site6_networks}
+library(asnipe)
+library(igraph)
+
+# Network of Site 6
+identities<-colnames(gbi_s6)
+network <- matrix(0, ncol(gbi_s6), ncol(gbi_s6))
+
+network<- get_network(gbi_s6, data_format="GBI",
+association_index="HWI", identities=identities, times=events_s6$midpoint, start_time=min(events_s6$midpoint), end_time=max(events_s6$midpoint))
+rownames(network)<-identities
+colnames(network)<-identities
+
+net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
+deg_weighted <- graph.strength(net)
+hist(deg_weighted, main="Histogram of Weighted Degree for Site 6 (SRI)")
+V(net)$size <- deg_weighted*10
+plot(net, vertex.color="cyan4", vertex.label=NA, vertex.label.color="black", main="Site 6")
+
+network_stats_s6<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
+igraph::transitivity(net, type="localundirected"))
+network_stats_s6$node_names<-rownames(network_stats_s6)
+
+s6_long<-gather(network_stats_s6, key=network_metric, value=value,
+weighted_degree:transitivity)
+
+ggplot(network_stats_s6, aes(x=weighted_degree, y=betweenness))+
+  geom_point(aes(size=transitivity, alpha=0.5))+
+  xlab("Weighted degree")+
+  ylab("Betweenness")+
+  ggtitle("Site 6: Degree and betweenness")+
+  geom_text(aes(label=node_names),hjust=0, vjust=0)
+```
+
+### Site 7 Networks
+```{r site7_networks}
+library(asnipe)
+library(igraph)
+
+# Network of Site 7
+identities<-colnames(gbi_s7)
+network <- matrix(0, ncol(gbi_s7), ncol(gbi_s7))
+
+network<- get_network(gbi_s7, data_format="GBI",
+association_index="HWI", identities=identities, times=events_s7$midpoint, start_time=min(events_s7$midpoint), end_time=max(events_s7$midpoint))
+rownames(network)<-identities
+colnames(network)<-identities
+
+net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
+deg_weighted <- graph.strength(net)
+hist(deg_weighted, main="Histogram of Weighted Degree for Site 7 (SRI)")
+V(net)$size <- deg_weighted*10
+plot(net, vertex.color="cyan4", vertex.label=NA, vertex.label.color="black", main="Site 7")
+
+network_stats_s7<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
+igraph::transitivity(net, type="localundirected"))
+network_stats_s7$node_names<-rownames(network_stats_s7)
+
+s7_long<-gather(network_stats_s7, key=network_metric, value=value,
+weighted_degree:transitivity)
+
+ggplot(network_stats_s7, aes(x=weighted_degree, y=betweenness))+
+  geom_point(aes(size=transitivity, alpha=0.5))+
+  xlab("Weighted degree")+
+  ylab("Betweenness")+
+  ggtitle("Site 7: Degree and betweenness")+
+  geom_text(aes(label=node_names),hjust=0, vjust=0)
+```
+
+### Site 8 Networks
+```{r site8_networks}
+library(asnipe)
+library(igraph)
+
+# Network of Site 8
+identities<-colnames(gbi_s8)
+network <- matrix(0, ncol(gbi_s8), ncol(gbi_s8))
+
+network<- get_network(gbi_s8, data_format="GBI",
+association_index="HWI", identities=identities, times=events_s8$midpoint, start_time=min(events_s8$midpoint), end_time=max(events_s8$midpoint))
+rownames(network)<-identities
+colnames(network)<-identities
+
+net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
+deg_weighted <- graph.strength(net)
+hist(deg_weighted, main="Histogram of Weighted Degree for Site 8 (SRI)")
+V(net)$size <- deg_weighted*10
+plot(net, vertex.color="cyan4", vertex.label=NA, vertex.label.color="black", main="Site 8")
+
+network_stats_s8<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
+igraph::transitivity(net, type="localundirected"))
+network_stats_s8$node_names<-rownames(network_stats_s8)
+
+s8_long<-gather(network_stats_s8, key=network_metric, value=value,
+weighted_degree:transitivity)
+
+ggplot(network_stats_s8, aes(x=weighted_degree, y=betweenness))+
+  geom_point(aes(size=transitivity, alpha=0.5))+
+  xlab("Weighted degree")+
+  ylab("Betweenness")+
+  ggtitle("Site 8: Degree and betweenness")+
+  geom_text(aes(label=node_names),hjust=0, vjust=0)
+```
+
+### Lake Parley 2020 Networks
+```{r}
+
+# Network of Parley 
+identities<-colnames(gbi_parley2020)
+network <- matrix(0, ncol(gbi_parley2020), ncol(gbi_parley2020))
+
+network<- get_network(gbi_parley2020, data_format="GBI",
+association_index="HWI", identities=identities, times=events_parley2020$midpoint, start_time=min(events_parley2020$midpoint),     end_time=max(events_parley2020$midpoint))
+rownames(network)<-identities
+colnames(network)<-identities
+
+net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
+deg_weighted <- graph.strength(net)
+hist(deg_weighted, main="Histogram of Weighted Degree for Parley Network")
+V(net)$size <- deg_weighted*10
+plot(net, vertex.color="cyan4", vertex.label= NA, main="Parley: Combined Antenna")
+
+network_stats_parley2020<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
+igraph::transitivity(net, type="localundirected"))
+network_stats_parley2020$node_names<-rownames(network_stats_parley2020)
+
+parley2020_long<-gather(network_stats_parley2020, key=network_metric, value=value,
+weighted_degree:transitivity)
+
+ggplot(network_stats_parley2020, aes(x=weighted_degree, y=betweenness))+
+  geom_point(aes(size=transitivity, alpha=0.5))+
+  xlab("Weighted degree")+
+  ylab("Betweenness")+
+  ggtitle("Parley (all sites)")+
+  geom_text(aes(label=node_names),hjust=0, vjust=0)
+
+```
+
+
+### Boxplots of individual network measures
+Here we plot boxplots of individual unweighted degree, overall association strength (weighted degree) and betweenness for networks of Sites 1-8 and Lake Parley as a whole.
+
+
+```{r}
+
+# boxplots of individual network measures 
+ggplot(s1_long, aes(x=network_metric, y=value)) + 
+  geom_boxplot()+ 
+  ggtitle("Network metrics for Site 1")+ #
+  xlab("Network metric")
+
+ggplot(s2_long, aes(x=network_metric, y=value)) + 
+  geom_boxplot()+ 
+  ggtitle("Network metrics for Site 2")+ #
+  xlab("Network metric")
+
+ggplot(s3_long, aes(x=network_metric, y=value)) + 
+  geom_boxplot()+ 
+  ggtitle("Network metrics for Site 3")+ #
+  xlab("Network metric")
+
+ggplot(s4_long, aes(x=network_metric, y=value)) + 
+  geom_boxplot()+ 
+  ggtitle("Network metrics for Site 4")+ #
+  xlab("Network metric")
+
+ggplot(s5_long, aes(x=network_metric, y=value)) + 
+  geom_boxplot()+ 
+  ggtitle("Network metrics for Site 5")+ #
+  xlab("Network metric")
+
+ggplot(s6_long, aes(x=network_metric, y=value)) + 
+  geom_boxplot()+ 
+  ggtitle("Network metrics for Site 6")+ #
+  xlab("Network metric")
+
+ggplot(s7_long, aes(x=network_metric, y=value)) + 
+  geom_boxplot()+ 
+  ggtitle("Network metrics for Site 7")+ #
+  xlab("Network metric")
+
+ggplot(s8_long, aes(x=network_metric, y=value)) + 
+  geom_boxplot()+ 
+  ggtitle("Network metrics for Site 8")+ #
+  xlab("Network metric")
+
+ggplot(parley2020_long, aes(x=network_metric, y=value)) + #
+  geom_boxplot()+ 
+  ggtitle("Network metrics for Lake Parley")+ #
+  xlab("Network metric") 
+
+s1_long$site<-rep("Site 1", nrow(s1_long))
+s2_long$site<-rep("Site 2", nrow(s2_long))
+s3_long$site<-rep("Site 3", nrow(s3_long))
+s4_long$site<-rep("Site 4", nrow(s4_long))
+s5_long$site<-rep("Site 5", nrow(s5_long))
+s6_long$site<-rep("Site 6", nrow(s6_long))
+s7_long$site<-rep("Site 7", nrow(s7_long))
+s8_long$site<-rep("Site 8", nrow(s8_long))
+
+parley2020_long$site<-rep("Parley", nrow(parley2020_long))
+
+all_sites_long<-rbind(s1_long, s2_long, s3_long, s4_long, s5_long, s6_long, s7_long, s8_long, parley2020_long)
+
+ggplot(all_sites_long, aes(x=site, y=value)) + #
+  geom_boxplot()+ 
+  facet_grid(network_metric~., scales = "free")+
+  ggtitle("Comparing network metrics across sites")+ #
+  xlab("Site") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+### Reproducibility
+```{r}
+Sys.time()
+git2r::repository()
+sessionInfo()
+```
+
+
+### References
+
+Damien R. Farine (2019). asnipe: Animal Social Network Inference and
+  Permutations for Ecologists. R package version 1.1.12.
+  https://CRAN.R-project.org/package=asnipe
+
