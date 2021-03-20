@@ -1,4 +1,50 @@
 # Carp
+## 2020 Season (all contained within 2020 folder)
+Carp PIT tag data analysis for 2019 field season for Lake Parley for sites 1-8. 2019 Boat Ramp = Site 1 in 2020 and 2019 Crown College = Site 3 in 2020. In this field season, only one antenna per site was deployed.
+
+### Data analysis files for 2020 season
+- `2020CarpNetworks.Rmd`- replicates `GMM_Results.Rmd`from the 2019 season for 2020 data, using a Gaussian Mixed Model approach to identify feeding bouts, group size, and generate contact networks based on individual and combined sites within Lake Parley. Dependent upon `All_PIT.csv` for PIT Tag capture data and `SITE_1_2020.csv` through `SITE_8_2020.csv`for PIT tag reads across all eight sites.
+
+### Raw data files
+
+- `Parley_Halsteads_PIT_2019.csv`- 2019 capture data for Lake Parley and Lake Halsteads
+- `Parley_Recaps_2020.csv`- recapture data for Lake Parley in 2020
+- `Extra_PIT_2020.csv`- additional captures for 2020 in Lake Parley
+- `All_PIT.csv`- combined 2019 and 2020 capture data
+
+#### Lake Parley
+
+- `SITE_1_2020.csv`- PIT tag reads at Site 1 on Lake Parley in 2020 season
+- `SITE_2_2020.csv`- PIT tag reads at Site 2 on Lake Parley in 2020 season
+- `SITE_3_2020.csv`- PIT tag reads at Site 3 on Lake Parley in 2020 season
+- `SITE_4_2020.csv`- PIT tag reads at Site 4 on Lake Parley in 2020 season
+- `SITE_5_2020.csv`- PIT tag reads at Site 5 on Lake Parley in 2020 season
+- `SITE_6_2020.csv`- PIT tag reads at Site 6 on Lake Parley in 2020 season
+- `SITE_7_2020.csv`- PIT tag reads at Site 7 on Lake Parley in 2020 season
+- `SITE_8_2020.csv`- PIT tag reads at Site 8 on Lake Parley in 2020 season
+
+### GMM output bout duration tables
+
+- `events_s1.RDS`- bout duration table from GMM analysis for Site 1
+- `events_s2.RDS`- bout duration table from GMM analysis for Site 2
+- `events_s3.RDS`- bout duration table from GMM analysis for Site 3
+- `events_s4.RDS`- bout duration table from GMM analysis for Site 4
+- `events_s5.RDS`- bout duration table from GMM analysis for Site 5
+- `events_s6.RDS`- bout duration table from GMM analysis for Site 6
+- `events_s7.RDS`- bout duration table from GMM analysis for Site 7
+- `events_s8.RDS`- bout duration table from GMM analysis for Site 8
+- `events_parley2020.RDS`- bout duration table from GMM analysis for all eight sites in Lake Parley 2020 season
+
+### GMM output group-by-individual matrices
+- `gbi_s1.RDS`- group-by-individual matrix for Site 1
+- `gbi_s2.RDS`- group-by-individual matrix for Site 2
+- `gbi_s3.RDS`- group-by-individual matrix for Site 3
+- `gbi_s4.RDS`- group-by-individual matrix for Site 4
+- `gbi_s5.RDS`- group-by-individual matrix for Site 5
+- `gbi_s6.RDS`- group-by-individual matrix for Site 6
+- `gbi_s7.RDS`- group-by-individual matrix for Site 7
+- `gbi_s8.RDS`- group-by-individual matrix for Site 8
+- `gbi_parley2020.RDS`- group-by-individual matrix for for all eight sites in Lake Parley 2020 season
 
 ## 2019 Season
 Carp PIT tag data analysis for 2019 field season for Lake Parley and Lake Halstead. Sites are located as follows:
