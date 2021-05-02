@@ -145,7 +145,7 @@ pr<-bipartite.projection(bi, multiplicity=TRUE)
 
 # get.adjacency(pr$proj1,sparse=FALSE,attr="weight")
 h<-pr$proj2
-l3 <-layout.circle(h)
+l3 <-layout_in_circle(h, order=c(6, 5, 4, 3, 2, 1, 8, 7))
 plot.igraph(h,vertex.label=V(h)$name,layout=l3,edge.width=E(h)$weight/10^8, edge.color="black")
 
 # visweb(t(A), circles=TRUE,  boxes=FALSE,  labsize=1, circle.max=1.5, text="no", plotsize= 18)
@@ -403,6 +403,42 @@ ggplot(all_superfish, aes(fill=Site, y=nvisit, x=fishID))+
     scale_fill_viridis(discrete=TRUE, name = "Site", labels = c("Site 1", "Site 2", "Site 3", "Site 4", "Site 5", "Site 6", "Site 7", "Site 8"))+
     labs(y= "Visits", x = "Carp ID")+
     geom_vline(xintercept=which(levels(all_superfish$fishID) == cutoff))
+
+levels(all_superfish$fishID)
+top20_ID<-levels(all_superfish$fishID)[1:top20]
+top20_superfish<-all_superfish[which(all_superfish$fishID %in% top20_ID),]
+
+ggplot(top20_superfish, aes(fill=Site, y=nvisit, x=fishID))+ 
+    geom_col()+
+    theme(axis.text.x = element_text(size=12, angle = 90, hjust = 1))+
+    scale_fill_viridis(discrete=TRUE, name = "Site", labels = c("Site 1", "Site 2", "Site 3", "Site 4", "Site 5", "Site 6", "Site 7", "Site 8"))+
+    labs(y= "Visits", x = "Carp ID")
+
+superfeeder_bool<-data.frame(fishID=all_superfish$fishID, top20=(all_superfish$fishID %in% top20_ID))
+
+#scatter plot of number of visits vs % of time spent at preferred/dominate/most detected site
+superfish_wide$max_per_site<- apply(X=superfish_wide[,2:9], MARGIN=1, FUN=max)
+superfish_wide$percentage_max<-superfish_wide$max_per_site/superfish_wide$total*100
+superfish_wide$top20<-superfeeder_bool$top20[match(superfish_wide$fishID,superfeeder_bool$fishID)]
+  
+ggplot(superfish_wide, aes(x=total, y=percentage_max, color=top20))+
+  geom_point(alpha=0.5)+
+  # geom_abline(intercept = 0, slope = 100/30)+
+  xlab("Total number of visits")+
+  ylab("Fraction of time at top visited Site")+
+  ggtitle("Relative 'Site Fidelity' for Superfeeders")+
+  geom_text(aes(label = ifelse(top20 == 'TRUE', fishID, NA)), check_overlap= TRUE, colour="black")
+
+ggplot(superfish_wide, aes(x=total, y=max_per_site, color=top20))+
+  geom_point(alpha=0.5)+
+  geom_abline(intercept = 0, slope = 1)+
+  xlab("Total number of visits")+
+  ylab("Number of visits at top visited Site")+
+  ggtitle("Relative 'Site Fidelity' for Superfeeders")+
+  geom_text(aes(label = ifelse(top20 == 'TRUE', fishID, NA)), check_overlap= TRUE, colour="black")
+
+
+
 ```
 
 ### Average group size and feeding bout duration
@@ -1215,6 +1251,15 @@ scale_x_continuous()+
   ylab("Number of times observed")+
   ggtitle("Lake Parley: Duration of feeding bout (min)")
 
+ggplot(parley2020_gs, aes(dur_min)) + 
+geom_histogram(color="black", fill="darkcyan") + 
+scale_x_continuous(trans = "log2")+
+  # coord_trans(x="log2")+
+  xlab("Duration of feeding bout (min)")+
+  ylab("Number of times observed")+
+  ggtitle("Lake Parley: Duration of feeding bout (min)")
+
+
 mean(parley2020_gs$dur_min)
 median(parley2020_gs$dur_min)
 
@@ -1523,23 +1568,41 @@ colnames(network)<-identities
 
 net <- graph.adjacency(network, mode="undirected", diag=FALSE, weighted=TRUE)
 deg_weighted <- graph.strength(net)
+deg<-igraph::degree(net)
 hist(deg_weighted, main="Histogram of Weighted Degree for Parley Network")
+hist(deg, main="Histogram of Degree for Parley Network")
 V(net)$size <- deg_weighted*10
-plot(net, vertex.color="cyan4", vertex.label= NA, main="Parley: Combined Antenna")
+
+V(net)$top20=as.character(superfeeder_bool$top20[match(V(net)$name,superfeeder_bool$fishID)]) 
+V(net)$color=V(net)$top20
+V(net)$color=gsub(FALSE,"gray",V(net)$color)
+V(net)$color=gsub(TRUE,"blue",V(net)$color)
+
+
+plot(net, vertex.color=V(net)$color, vertex.label= NA, main="Parley: All Sites")
 
 network_stats_parley2020<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
-igraph::transitivity(net, type="localundirected"))
+igraph::transitivity(net, type="localundirected"), top20=superfeeder_bool$top20[match(V(net)$name,superfeeder_bool$fishID)])
 network_stats_parley2020$node_names<-rownames(network_stats_parley2020)
 
 parley2020_long<-gather(network_stats_parley2020, key=network_metric, value=value,
 weighted_degree:transitivity)
 
-ggplot(network_stats_parley2020, aes(x=weighted_degree, y=betweenness))+
-  geom_point(aes(size=transitivity, alpha=0.5))+
+ggplot(network_stats_parley2020, aes(x=weighted_degree, y=betweenness, color=top20))+
+  geom_point(aes(size=degree),alpha=0.5)+
   xlab("Weighted degree")+
   ylab("Betweenness")+
-  ggtitle("Parley (all sites)")+
-  geom_text(aes(label=node_names),hjust=0, vjust=0)
+  ggtitle("Parley (all sites): Weighted degree vs. Betweenness")+
+  geom_text(aes(label = ifelse(top20 == 'TRUE', node_names, NA)), check_overlap= TRUE, colour="black")
+  # geom_text(aes(label=node_names),hjust=0, vjust=0)
+  # geom_text(data=filter(network_stats_parley2020, top20=="TRUE"))
+
+ggplot(network_stats_parley2020, aes(x=degree, y=betweenness, color=top20))+
+  geom_point(alpha=0.5)+
+  xlab("Degree")+
+  ylab("Betweenness")+
+  ggtitle("Parley (all sites): Degree vs. Betweenness")+
+  geom_text(aes(label = ifelse(top20 == 'TRUE', node_names, NA)), check_overlap= TRUE, colour="black")
 
 ```
 
