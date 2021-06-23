@@ -1,0 +1,16 @@
+base
+dplyr
+stringr
+lubridate
+Matrix
+igraph
+permute
+lattice
+vegan
+statnet.common
+network
+sna
+bipartite
+data.table
+ggplot2
+gganimate

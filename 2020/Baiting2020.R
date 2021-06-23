@@ -90,7 +90,7 @@ as.data.frame(detectsad)
 names(detectsad) <- c("Date" ,"UniquePIT", "DailyVisits")
 
 
-ggplot(detectsad, aes(x=Date, y=DailyVisits)) +geom_point()+ geom_line()+ theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) ->p
+ggplot(detectsad, aes(x=Date, y=DailyVisits)) +geom_point()+ geom_line()+ theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 
 
 

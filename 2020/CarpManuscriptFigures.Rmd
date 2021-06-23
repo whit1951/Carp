@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning = FALSE, cache=TRUE)
 ```
 
 
-## Load libraries, load data, clean data
+## Load libraries, load data, clean data, set color palettes
 
 ```{r libraries}
 library(dplyr)
@@ -26,9 +26,15 @@ library(tidyr)
 library(viridis)
 library(asnipe)
 set.seed(1234)
+
+#set colors
+col_year<-viridis(n=2, option="mako", begin=0.25)
+col_sfeeder<-viridis(n=2, option="turbo", begin=0.3)
+col_sites<-viridis(n=8)
 ```
 
 ### Load 2019 data
+For 2020 data, Boat Ramp = Site 1 and Crown College = Site 3.
 ```{r load2019data}
 setwd("~/Carp")
 #load and clean Boat Ramp and College Crown Site data
@@ -189,7 +195,7 @@ s7_corn<- merged_s7 %>% filter(DATETIME >=as.POSIXct("2020-07-03 12:00:00", tz="
 s8_corn<- merged_s8 %>% filter(DATETIME >=as.POSIXct("2020-07-03 12:00:00", tz="CDT") & DATETIME < as.POSIXct("2020-07-23 12:00:00", tz="CDT"))
 ```
 
-## Captures and Detections in 2020
+### Captures and Detections in 2020
 ```{r 2020captures}
 #In 2020, how many total detections were there in Parley?
 nrow(all_sites)
@@ -218,6 +224,33 @@ sum(!(unique(all_sites_corn$PIT) %in% unique(total_corn$PIT)))
 #How many total detections for 2019 & 2020 in the pre-baiting and baiting periods?
 nrow(total_natural)+ nrow(total_corn)+ nrow(all_sites_natural)+nrow(all_sites_corn)
 
+```
+## Supplemental Table 1
+Uniquely detected carp at each site.
+```{r}
+unique_fish<-c(
+length(unique(s1_corn$PIT)),
+length(unique(s2_corn$PIT)),
+length(unique(s3_corn$PIT)),
+length(unique(s4_corn$PIT)),
+length(unique(s5_corn$PIT)),
+length(unique(s6_corn$PIT)),
+length(unique(s7_corn$PIT)),
+length(unique(s8_corn$PIT)))
+
+#how many fish are only detected at the one given site?
+uniquely_detected<-c(
+sum(!(unique(s1_corn$PIT) %in% c(unique(s2_corn$PIT), unique(s3_corn$PIT), unique(s4_corn$PIT), unique(s5_corn$PIT), unique(s6_corn$PIT), unique(s7_corn$PIT), unique(s8_corn$PIT)))),
+sum(!(unique(s2_corn$PIT) %in% c(unique(s1_corn$PIT), unique(s3_corn$PIT), unique(s4_corn$PIT), unique(s5_corn$PIT), unique(s6_corn$PIT), unique(s7_corn$PIT), unique(s8_corn$PIT)))),
+sum(!(unique(s3_corn$PIT) %in% c(unique(s1_corn$PIT), unique(s2_corn$PIT), unique(s4_corn$PIT), unique(s5_corn$PIT), unique(s6_corn$PIT), unique(s7_corn$PIT), unique(s8_corn$PIT)))),
+sum(!(unique(s4_corn$PIT) %in% c(unique(s1_corn$PIT), unique(s2_corn$PIT), unique(s3_corn$PIT), unique(s5_corn$PIT), unique(s6_corn$PIT), unique(s7_corn$PIT), unique(s8_corn$PIT)))),
+sum(!(unique(s5_corn$PIT) %in% c(unique(s1_corn$PIT), unique(s2_corn$PIT), unique(s3_corn$PIT), unique(s4_corn$PIT), unique(s6_corn$PIT), unique(s7_corn$PIT), unique(s8_corn$PIT)))),
+sum(!(unique(s6_corn$PIT) %in% c(unique(s1_corn$PIT), unique(s2_corn$PIT), unique(s3_corn$PIT), unique(s4_corn$PIT), unique(s5_corn$PIT), unique(s7_corn$PIT), unique(s8_corn$PIT)))),
+sum(!(unique(s7_corn$PIT) %in% c(unique(s1_corn$PIT), unique(s2_corn$PIT), unique(s3_corn$PIT), unique(s4_corn$PIT), unique(s5_corn$PIT), unique(s6_corn$PIT), unique(s8_corn$PIT)))),
+sum(!(unique(s8_corn$PIT) %in% c(unique(s1_corn$PIT), unique(s2_corn$PIT), unique(s3_corn$PIT), unique(s4_corn$PIT), unique(s5_corn$PIT), unique(s6_corn$PIT), unique(s7_corn$PIT)))))
+
+supp_table1<-data.frame(unique_fish, uniquely_detected)
+supp_table1$percent_unique<-uniquely_detected/unique_fish*100
 ```
 
 
@@ -326,7 +359,70 @@ E(h)[26]
 E(h)[26]$weight/E(h)[23]$weight
 
 ```
-### Figure 2. Feeding bout group size, duration, and correlation
+### Figure 2. Spatiotemporal data streams for Site 1
+```{r}
+events_s1 <- readRDS("~/Carp/2020/events_s1.RDS")
+gbi_s1 <- readRDS("~/Carp/2020/gbi_s1.RDS")
+
+#time course of individual carp visits to each site during baiting period (July 3rd- July 23rd 2020)
+A<-ggplot(data=s1_corn, aes(DATETIME, as.factor(PIT))) +
+  geom_point(alpha=0.5)+
+  scale_x_datetime(date_breaks="1 day")+
+  # ggtitle("Site 1")+
+  xlab("Date")+
+  ylab("Carp PIT ID")+
+  theme_bw()+
+  theme(axis.text.x=element_text(angle=90), axis.text.y=element_text(size=6), axis.title = element_text(size=10))
+
+##add reference values for date/time
+s1_corn<-s1_corn[order(s1_corn$DATETIME),] #order chronologically
+# s1_corn<-s1_corn[1:2000,] #limit number of points for analysis
+Time<-vector(mode="integer", length=nrow(s1_corn)) #initialize empty vectors for numeric date and time
+Date<-vector(mode="integer", length=nrow(s1_corn))
+for(i in 1:nrow(s1_corn)){
+  Time[i]<-as.integer(difftime(s1_corn$DATETIME[i],s1_corn$DATETIME[1],units='secs'))
+  Date[i]<-as.integer(difftime(s1_corn$DATETIME[i],s1_corn$DATETIME[1],units='days'))
+}
+s1_corn_gmm<-s1_corn
+s1_corn_gmm$refTime<-Time
+s1_corn_gmm$refDate<-Date
+
+#subset data for a single day
+gmm_sub<- s1_corn_gmm %>% filter(DATETIME >=as.POSIXct("2020-07-16 17:00:00", tz="CDT") & DATETIME < as.POSIXct("2020-07-16 20:00:00", tz="CDT"))
+min_time<-gmm_sub$refTime[1]
+max_time<-gmm_sub$refTime[nrow(gmm_sub)]
+
+#starting reference for noon 7/16/20= 1013418
+events_sub<-events_s1 %>% filter(Start >=min_time & End<=max_time & Location=="1") %>% arrange(Start)
+events_sub$DATETIME_start <- as.POSIXct(events_sub$Start, origin = "2020-07-04 18:29:42",tz = "CDT", format='%Y-%m-%d %H:%M:%S')
+events_sub$DATETIME_end <- as.POSIXct(events_sub$End, origin = "2020-07-04 18:29:42",tz = "CDT", format='%Y-%m-%d %H:%M:%S')
+events_sub$Event<-seq(1:nrow(events_sub))
+
+B<-ggplot()+
+  geom_point(data=gmm_sub, aes(DATETIME, as.factor(PIT), alpha=0.5))+
+  scale_x_datetime(date_breaks="1 hour", date_labels = "%H:%M")+
+  # ggtitle("Site 1")+
+  xlab("Time (Hours) on July 16, 2020")+
+  ylab("Carp PIT ID")+
+  scale_fill_viridis_d()+
+ geom_rect(aes(xmin = DATETIME_start, xmax = DATETIME_end, fill = as.factor(Event)), 
+    ymin = -Inf, ymax = Inf, alpha = 0.3, 
+    data = events_sub)+
+  theme_bw()+
+  theme(axis.text.y=element_text(size=8), axis.title = element_text(size=10), legend.position = "none")
+  
+multiplot(A, B, cols=1)
+
+#number of events detected by day
+events_by_day<-table(as.Date(s1_corn_gmm$DATETIME))
+mean(events_by_day)
+min(events_by_day)
+max(events_by_day)
+```
+
+
+
+### Figure 3. Feeding bout group size, duration, and correlation
 ```{r feeding_bouts}
 events_parley2020 <- readRDS("~/Carp/2020/events_parley2020.RDS")
 gbi_parley2020 <- readRDS("~/Carp/2020/gbi_parley2020.RDS")
@@ -338,11 +434,12 @@ parley2020_gs$dur_min<-parley2020_gs$dur/60
 head(parley2020_gs)
 
 A<-ggplot(parley2020_gs, aes(groupsize)) + 
-geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[2]) + 
 scale_x_continuous(breaks=0:20)+
   xlab("Number of carp per feeding bout")+
   ylab("Number of observations")+
-  ggtitle("(A)")
+  ggtitle("(A)")+
+  theme_bw()
   # ggtitle("Lake Parley: Average group size")
 A
 
@@ -355,11 +452,12 @@ A
 #   ggtitle("Lake Parley: Duration of feeding bout (min)")
 
 B<- ggplot(parley2020_gs, aes(dur_min)) + 
-geom_histogram(color="black", fill="darkcyan") + 
+geom_histogram(color="black", fill=col_year[2]) + 
 scale_x_continuous(trans = "log2")+
   xlab("Duration of feeding bout (min)")+
   ylab("Number of observations")+
-   ggtitle("(B)")
+   ggtitle("(B)")+
+  theme_bw()
   # ggtitle("Lake Parley: Duration of feeding bout (min)")
 
 
@@ -370,7 +468,8 @@ C<-ggplot(parley2020_gs, aes(x=dur_min, y=groupsize)) +
   scale_x_continuous(trans = "log2")+
   xlab("Bout duration (min)")+
   ylab("Group size")+
-  ggtitle("(C)")
+  ggtitle("(C)")+
+  theme_bw()
   # ggtitle("Lake Parley")
 
 multiplot(A,B,C, cols=1)
@@ -379,7 +478,7 @@ mean(parley2020_gs$dur_min)
 median(parley2020_gs$dur_min)
 max(parley2020_gs$dur_min)
 ```
-### Figure 3. Superfeeders
+### Figure 4. Superfeeders
 ```{r}
 start_date<-as.POSIXct("2020-07-03 12:00:00 CDT") #rounded to nearest midday
 end_date<-as.POSIXct("2020-07-23 12:00:00 CDT")
@@ -389,11 +488,12 @@ num_days<-as.numeric(end_date-start_date)
 #Histogram of the number of sampling days each fish visits Site 1
 superfish_s1<-calc_nvisit(df=s1_corn, num_days=num_days, start_date=start_date)
 A<- ggplot(superfish_s1,aes(nvisit)) + 
-geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkcyan") + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[2]) + 
 scale_x_continuous(breaks=0:20)+
   xlab("Number of sampling days")+
   ylab("Number of unique fish")+
-  ggtitle("(A)")
+  ggtitle("(A)")+
+  theme_bw()
   # ggtitle("(Site 1: Baiting Period")
 
 superfish_s2<-calc_nvisit(df=s2_corn, num_days=num_days, start_date=start_date)
@@ -421,6 +521,7 @@ superfish_wide <- spread(all_superfish, Site, nvisit) #convert from long to wide
 superfish_wide[is.na(superfish_wide)] <- 0 #convert NAs to zero
 superfish_wide$total <- rowSums(superfish_wide[2:9])
 superfish_wide<-superfish_wide[order(superfish_wide$total, decreasing=TRUE),]
+# superfish_wide$short_lab<-LETTERS[seq( from = 1, to = nrow(superfish_wide))]
 
 all_superfish$fishID <- factor(all_superfish$fishID, levels = superfish_wide$fishID[order(superfish_wide$total, decreasing=TRUE)])
 
@@ -464,21 +565,24 @@ superfish_wide$percentage_max<-superfish_wide$max_per_site/superfish_wide$total*
 superfish_wide$top20<-superfeeder_bool$top20[match(superfish_wide$fishID,superfeeder_bool$fishID)]
   
 C<- ggplot(superfish_wide, aes(x=total, y=percentage_max))+
-  geom_point(aes(colour = top20), alpha=0.5)+
+  geom_point(aes(colour = top20, shape=top20), alpha=0.5)+
   # geom_abline(intercept = 0, slope = 100/30)+
   xlab("Total number of visits")+
   ylab("Fraction of time at top visited Site")+
   ggtitle("(C)")+
   # ggtitle("Relative 'Site Fidelity' for Superfeeders")+
-  geom_text(aes(label = ifelse(top20 == 'TRUE', fishID, NA)), check_overlap= TRUE, colour="black")+
-  scale_colour_discrete(name="Individual \ncarp", labels = c("Non-superfeeders", "Superfeeders"))
+  geom_text(aes(label = ifelse(top20 == 'TRUE', fishID, NA)), check_overlap= TRUE, colour="black", vjust="inward", hjust="inward")+
+  scale_shape_manual(name="Individual \ncarp", labels = c("Non-superfeeders", "Superfeeders"), values=c(15,17))+
+  scale_colour_manual(name="Individual \ncarp", labels = c("Non-superfeeders", "Superfeeders"), values=col_sfeeder)+
+  theme_bw()
 C
 
 multiplot(A, plot.with.inset, C, cols=1)
+top20_ID_2020<-top20_ID
 
 ```
 
-### Figure 4. Co-feeding network heterogeneity and connectivity
+### Figure 5. Co-feeding network heterogeneity and connectivity
 ```{r}
 # Network of Parley 
 identities<-colnames(gbi_parley2020)
@@ -509,11 +613,11 @@ V(net)$color=gsub(TRUE,"blue",V(net)$color)
 library(ggnetwork)
 n<-ggnetwork(net)
 A<-ggplot(n, aes(x = x, y = y, xend = xend, yend = yend)) +
-  geom_edges(color = "lightgrey") +
-  geom_nodes(aes(colour = top20, size = weight)) +
-  theme_blank()+
-  scale_colour_discrete(name="Individual \ncarp", labels = c("Non-superfeeders", "Superfeeders"))+
+  geom_edges(color = "lightgrey", alpha=0.4) +
+  geom_nodes(aes(color = top20, size = weight)) +
+  scale_color_manual(name="Individual \ncarp", labels = c("Non-superfeeders", "Superfeeders"), values=col_sfeeder)+
   scale_size_continuous(name="Weighted degree")+
+  theme_blank()+
   ggtitle("(A)")
 
 network_stats_parley2020<-data.frame(nodes=as.character(V(net)), weighted_degree=igraph::graph.strength(net), degree=igraph::degree(net), betweenness=igraph::betweenness(net),transitivity=
@@ -533,13 +637,15 @@ weighted_degree:transitivity)
 #   # geom_text(data=filter(network_stats_parley2020, top20=="TRUE"))
 
 B<-ggplot(network_stats_parley2020, aes(x=degree, y=betweenness))+
-  geom_point(aes(colour = top20), alpha=0.5)+
+  geom_point(aes(colour = top20, shape=top20), alpha=0.5)+
   xlab("Degree")+
   ylab("Betweenness")+
   ggtitle("(B)")+
   # ggtitle("Parley (all sites): Degree vs. Betweenness")+
-  geom_text(aes(label = ifelse(top20 == 'TRUE', node_names, NA)), check_overlap= TRUE, colour="black")+
- scale_colour_discrete(name="Individual \ncarp", labels = c("Non-superfeeders", "Superfeeders"))
+  geom_text(aes(label = ifelse(top20 == 'TRUE', node_names, NA)), check_overlap= TRUE, colour="black",vjust="inward", hjust="inward")+  
+  scale_shape_manual(name="Individual \ncarp", labels = c("Non-superfeeders", "Superfeeders"), values=c(15,17))+
+  scale_color_manual(name="Individual \ncarp", labels = c("Non-superfeeders", "Superfeeders"), values=col_sfeeder)+
+  theme_bw()
 B
 
 plot_grid(A, B, labels = c('A', 'B'))
@@ -548,9 +654,9 @@ multiplot(A,B, cols=2)
 ```
 
 
-
 ## Supplementary Figures 
 ### Suplementary Figure 1
+Total daily detections of unique carp at all sites in Parley Lake for the pre-baiting and baiting periods in (A) 2019 and (B) 2020
 ```{r unique_daily_visits}
 #histogram of number of unique visitors by sampling day
 #2019
@@ -577,13 +683,15 @@ for(i in 1:num_days){
 
 sampling_df$uniqueID<-as.numeric(sampling_df$uniqueID)
 A<-ggplot(sampling_df, aes(x=date, y=uniqueID))+
-  geom_bar(stat="identity")+
+  geom_bar(stat="identity",fill=col_year[1])+
   geom_vline(aes(xintercept = as.Date("2019-07-30")),
              linetype = 4, colour = "black")+
   xlab("Sampling Day (2019)")+
   ylab("Unique fish detected per day")+
   scale_x_date(date_breaks = "1 day", date_labels = "%b %d")+
+  theme_bw()+
   theme(axis.text.x = element_text(angle = 90))
+
   
 
 # 2020
@@ -611,13 +719,15 @@ for(i in 1:num_days){
 sampling_df$uniqueID<-as.numeric(sampling_df$uniqueID)
 sampling_df$uniqueID<-as.numeric(sampling_df$uniqueID)
 B<-ggplot(sampling_df, aes(x=date, y=uniqueID))+
-  geom_bar(stat="identity")+
+  geom_bar(stat="identity", fill=col_year[2])+
   geom_vline(aes(xintercept = as.Date("2020-07-03")),
              linetype = 4, colour = "black")+
   xlab("Sampling Day (2020)")+
   ylab("Unique fish detected per day")+
   scale_x_date(date_breaks = "1 day", date_labels = "%b %d")+
+  theme_bw()+
   theme(axis.text.x = element_text(angle = 90))
+
 
 # tiff("S1.tiff", height =10 , width =8.7, units = "cm", compression = "lzw", res = 1200)
 multiplot(A, B, cols=1)
@@ -627,7 +737,9 @@ multiplot(A, B, cols=1)
 ```
 
 
-### Suplementary Figure 2
+### Suplementary Figure 2. Diel cycle
+The probability density curve based on the total number of detections across a 24-hour cycle for the baiting period in both 2019 and 2020 in Parley Lake. 
+
 ```{r diel_patterns}
 library(lubridate)
 all_sites_corn$Year<-2020
@@ -644,15 +756,16 @@ both_years_baiting<-bind_rows(all_sites_corn, total_corn)
 # both_years_baiting$Time<- as.POSIXct(both_years_baiting$Time, format=' %I:%M:%S %p', tz="CDT") 
 # both_years_baiting$Time<-lubridate::hour(both_years_baiting$Time) + lubridate::minute(both_years_baiting$Time)/60
 # both_years_baiting$Time<-as.numeric(both_years_baiting$Time)
-cols <- c("lightblue", "green")
+
 
 S2<-ggplot(both_years_baiting, aes(Time, fill=as.factor(Year))) +
-  geom_density(alpha=0.2)+
+  geom_density(alpha=0.5)+
   xlab("Time of day: 24 hour cycle")+
   ylab("Probability density")+
   scale_x_continuous(breaks=c(0:24), limits=c(0,24))+
   labs(fill = "Year")+
-  scale_fill_manual(values = cols)
+  scale_fill_manual(values = col_year)+
+  theme_bw()
 
 # tiff("S2.tiff", height =10 , width =8.7, units = "cm", compression = "lzw", res = 1200)
 S2
@@ -672,20 +785,22 @@ parley_gs1$dur_min<-parley_gs1$dur/60
 head(parley_gs1)
 
 A<-ggplot(parley_gs1, aes(groupsize)) + 
-geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkorange4") + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[1]) + 
 scale_x_continuous(breaks=2:16)+
   xlab("Number of carp per feeding bout")+
   ylab("Number of times observed")+
-  ggtitle("(A)")
+  ggtitle("(A)")+
+  theme_bw()
   # ggtitle("Parley (combined antenna): Average group size")
 
 #histogram of feeding bout duration
 B<-ggplot(parley_gs1, aes(dur_min)) + 
-geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="darkorange4") + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[1]) + 
   scale_x_continuous(trans = "log2")+
   xlab("Duration of feeding bout (min)")+
   ylab("Number of times observed")+
-  ggtitle("(B)")
+  ggtitle("(B)")+
+  theme_bw()
   # ggtitle("Parley (combined antenna): Duration of feeding bout (min)")
 
 
@@ -694,7 +809,8 @@ C<-ggplot(parley_gs1, aes(x=dur_min, y=groupsize)) +
   scale_x_continuous(trans = "log2")+
   xlab("Bout duration (min)")+
   ylab("Group size")+
-  ggtitle("(C)")
+  ggtitle("(C)")+
+  theme_bw()
   # ggtitle("Parley (combined antenna)")
 
 
@@ -706,75 +822,217 @@ max(parley_gs1$dur_min)
 ```
 ### Figure S4. Superfeeder plots for all sites.
 ```{r}
+#2019
+start_date<-as.POSIXct("2019-07-30 12:00:00 CDT") #rounded to nearest midday
+end_date<-as.POSIXct("2019-08-16 12:00:00 CDT")
+num_days<-as.numeric(end_date-start_date)
+
+#Histogram of the number of sampling days each fish visits Boat Ramp
+superfish_br<-calc_nvisit(df=br_corn, num_days=num_days, start_date=start_date)
+br<-ggplot(superfish_br,aes(nvisit)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[1]) + 
+scale_x_continuous(breaks=0:20)+
+  xlab("")+
+  ylab("Number of unique fish")+
+  ggtitle("Site 1 (2019)")+
+  theme_bw()
+
+#Histogram of the number of sampling days each fish visits Crown College
+superfish_crown<-calc_nvisit(df=crown_corn, num_days=num_days, start_date=start_date)
+cr<-ggplot(superfish_crown,aes(nvisit)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[1]) + 
+scale_x_continuous(breaks=0:20)+
+  xlab("")+
+  ylab("")+
+  ggtitle("Site 3 (2019)")+
+  theme_bw()
+
+
+#2020
 start_date<-as.POSIXct("2020-07-03 12:00:00 CDT") #rounded to nearest midday
 end_date<-as.POSIXct("2020-07-23 12:00:00 CDT")
-
 num_days<-as.numeric(end_date-start_date)
+
+#Histogram of the number of sampling days each fish visits Site 1
+superfish_s1<-calc_nvisit(df=s1_corn, num_days=num_days, start_date=start_date)
+s1<-ggplot(superfish_s1,aes(nvisit)) + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[2]) + 
+scale_x_continuous(breaks=0:20)+
+  xlab("")+
+  ylab("Number of unique fish")+
+  ggtitle("Site 1 (2020)")+
+  theme_bw()
 
 
 #Histogram of the number of sampling days each fish visits Site 2
 superfish_s2<-calc_nvisit(df=s2_corn, num_days=num_days, start_date=start_date)
 s2<-ggplot(superfish_s2,aes(nvisit)) + 
-geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[2]) + 
 scale_x_continuous(breaks=0:20)+
-  xlab("Number of sampling days")+
-  ylab("Number of unique fish")+
-  ggtitle("Site 2: Baiting Period")
+  xlab("")+
+  ylab("")+
+  ggtitle("Site 2 (2020)")+
+  theme_bw()
 
 #Histogram of the number of sampling days each fish visits Site 3
 superfish_s3<-calc_nvisit(df=s3_corn, num_days=num_days, start_date=start_date)
 s3<-ggplot(superfish_s3,aes(nvisit)) + 
-geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[2]) + 
 scale_x_continuous(breaks=0:20)+
-  xlab("Number of sampling days")+
+  xlab("")+
   ylab("Number of unique fish")+
-  ggtitle("Site 3: Baiting Period")
+  ggtitle("Site 3 (2020)")+
+  theme_bw()
 
 #Histogram of the number of sampling days each fish visits Site 4
 superfish_s4<-calc_nvisit(df=s4_corn, num_days=num_days, start_date=start_date)
 s4<-ggplot(superfish_s4,aes(nvisit)) + 
-geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[2]) + 
 scale_x_continuous(breaks=0:20)+
-  xlab("Number of sampling days")+
-  ylab("Number of unique fish")+
-  ggtitle("Site 4: Baiting Period")
+  xlab("")+
+  ylab("")+
+  ggtitle("Site 4 (2020)")+
+  theme_bw()
 
 #Histogram of the number of sampling days each fish visits Site 5
 superfish_s5<-calc_nvisit(df=s5_corn, num_days=num_days, start_date=start_date)
 s5<-ggplot(superfish_s5,aes(nvisit)) + 
-geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[2]) + 
 scale_x_continuous(breaks=0:20)+
-  xlab("Number of sampling days")+
+  xlab("")+
   ylab("Number of unique fish")+
-  ggtitle("Site 5: Baiting Period")
+  ggtitle("Site 5 (2020)")+
+  theme_bw()
 
 #Histogram of the number of sampling days each fish visits Site 6
 superfish_s6<-calc_nvisit(df=s6_corn, num_days=num_days, start_date=start_date)
 s6<-ggplot(superfish_s6,aes(nvisit)) + 
-geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[2]) + 
 scale_x_continuous(breaks=0:20)+
-  xlab("Number of sampling days")+
-  ylab("Number of unique fish")+
-  ggtitle("Site 6: Baiting Period")
+  xlab("")+
+  ylab("")+
+  ggtitle("Site 6 (2020)")+
+  theme_bw()
 
 #Histogram of the number of sampling days each fish visits Site 7
 superfish_s7<-calc_nvisit(df=s7_corn, num_days=num_days, start_date=start_date)
 s7<-ggplot(superfish_s7,aes(nvisit)) + 
-geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[2]) + 
 scale_x_continuous(breaks=0:20)+
   xlab("Number of sampling days")+
   ylab("Number of unique fish")+
-  ggtitle("Site 7: Baiting Period")
+  ggtitle("Site 7 (2020)")+
+  theme_bw()
 
 #Histogram of the number of sampling days each fish visits Site 8
 superfish_s8<-calc_nvisit(df=s8_corn, num_days=num_days, start_date=start_date)
 s8<-ggplot(superfish_s8,aes(nvisit)) + 
-geom_histogram(binwidth=1,boundary=-0.5, color="black", fill="light blue") + 
+geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[2]) + 
 scale_x_continuous(breaks=0:20)+
   xlab("Number of sampling days")+
-  ylab("Number of unique fish")+
-  ggtitle("Site 8: Baiting Period")
+  ylab("")+
+  ggtitle("Site 8 (2020)")+
+  theme_bw()
 
-multiplot(s2, s3, s4, s5, s6, s7, s8, cols=2)
+multiplot(br, cr, s1, s2, s3, s4, s5, s6, s7, s8, cols=2)
 ```
 
+### Figure S5. Superfeeder vs. length (2020)
+```{r}
+superfish_wide<-superfish_wide %>% rename(PIT =fishID)
+    
+superfeeder_length<-merge(superfish_wide, pit_capture, by="PIT")
+superfeeder_length$Length<-as.numeric(superfeeder_length$Length)
+ggplot(superfeeder_length, aes(x=as.factor(top20), y=Length))+
+  geom_boxplot()+
+  stat_summary(fun.y=mean, geom="point", shape=23, size=3, colour="blue")+
+  geom_jitter(shape=16, alpha=0.6, position=position_jitter(0.2))+
+  theme(panel.background = element_blank())+
+  xlab("")+
+  ylab("Length (mm)")+
+  scale_x_discrete(labels=c("Non-superfeeders", "Superfeeders"))
+
+
+length_top20<-superfeeder_length$Length[which(superfeeder_length$top20==TRUE)]
+length_remaining80<-superfeeder_length$Length[which(superfeeder_length$top20==FALSE)]
+t.test(length_top20, length_remaining80, var.equal=FALSE)
+
+```
+### Supplemental Figure 6. Superfeeding results for 2019
+
+```{r}
+#Combined plot showing site preference and number of detected visits by fish
+superfish_br$Site<-"BR"
+superfish_crown$Site<-"Crown"
+
+all_superfish <- rbind(superfish_br,superfish_crown, Fill=NA)
+all_superfish<-na.omit(all_superfish)
+superfish_wide <- spread(all_superfish, Site, nvisit) #convert from long to wide data format
+# superfish_wide <- subset(superfish_wide,select = fishID:Site8)
+superfish_wide[is.na(superfish_wide)] <- 0 #convert NAs to zero
+superfish_wide$total <- rowSums(superfish_wide[2:3])
+superfish_wide<-superfish_wide[order(superfish_wide$total, decreasing=TRUE),]
+
+all_superfish$fishID <- factor(all_superfish$fishID, levels = superfish_wide$fishID[order(superfish_wide$total, decreasing=TRUE)])
+
+top20<-round(length(levels(all_superfish$fishID))*.2)
+cutoff<-levels(all_superfish$fishID)[top20]
+
+A<-ggplot(all_superfish, aes(fill=Site, y=nvisit, x=fishID))+ 
+    geom_col()+
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line=element_blank(), axis.text.x=element_blank(), axis.ticks = element_blank())+
+    scale_fill_manual(name = "Site", labels = c("Site 1", "Site 3"), values=c(col_sites[1], col_sites[3]))+
+    labs(y= "Visits per unique day", x = "Individual carp")+
+    geom_vline(xintercept=which(levels(all_superfish$fishID) == cutoff))+
+    ggtitle("(A)")
+A
+
+levels(all_superfish$fishID)
+top20_ID<-levels(all_superfish$fishID)[1:top20]
+top20_superfish<-all_superfish[which(all_superfish$fishID %in% top20_ID),]
+
+inset.plot<- ggplot(top20_superfish, aes(fill=Site, y=nvisit, x=fishID))+ 
+    geom_col()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.ticks = element_blank(), axis.text.x = element_text(size=6, angle = 90, hjust = 1), legend.position = "none")+
+    scale_fill_manual(name = "Site", labels = c("Site 1", "Site 3"), values=c(col_sites[1], col_sites[3]))+
+    labs(y= "Visits", x = "")
+inset.plot
+
+library(cowplot)
+
+plot.with.inset <-
+  ggdraw() +
+  draw_plot(A) +
+  draw_plot(inset.plot, x = 0.4, y = 0.5, width = .45, height = .50)
+plot.with.inset
+
+#scatter plot of number of visits vs % of time spent at preferred/dominate/most detected site
+superfeeder_bool<-data.frame(fishID=all_superfish$fishID, top20=(all_superfish$fishID %in% top20_ID))
+superfish_wide$max_per_site<- apply(X=superfish_wide[,2:3], MARGIN=1, FUN=max)
+superfish_wide$percentage_max<-superfish_wide$max_per_site/superfish_wide$total*100
+superfish_wide$top20<-superfeeder_bool$top20[match(superfish_wide$fishID,superfeeder_bool$fishID)]
+  
+B<- ggplot(superfish_wide, aes(x=total, y=percentage_max))+
+  geom_point(aes(colour = top20, shape=top20), alpha=0.5)+
+  # geom_abline(intercept = 0, slope = 100/30)+
+  xlab("Total number of visits")+
+  ylab("Fraction of time at top visited Site")+
+  ggtitle("(B)")+
+  # ggtitle("Relative 'Site Fidelity' for Superfeeders")+
+  geom_text(aes(label = ifelse(top20 == 'TRUE', fishID, NA)), check_overlap= TRUE, colour="black", vjust="inward", hjust="inward")+
+  scale_shape_manual(name="Individual \ncarp", labels = c("Non-superfeeders", "Superfeeders"), values=c(15,17))+
+  scale_colour_manual(name="Individual \ncarp", labels = c("Non-superfeeders", "Superfeeders"), values=col_sfeeder)+
+  theme_bw()
+B
+
+multiplot(plot.with.inset, B, cols=1)
+
+top20_ID_2019<-top20_ID
+sum(top20_ID_2019 %in% top20_ID_2020)
+length(top20_ID_2019)
+sum(top20_ID_2020 %in% top20_ID_2019)
+length(top20_ID_2020)
+top20_ID_2020[which(top20_ID_2020 %in% top20_ID_2019)]
+```
