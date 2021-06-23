@@ -3,6 +3,7 @@
 Carp PIT tag data analysis for 2019 field season for Lake Parley for sites 1-8. 2019 Boat Ramp = Site 1 in 2020 and 2019 Crown College = Site 3 in 2020. In this field season, only one antenna per site was deployed.
 
 ### Data analysis files for 2020 season
+- `CarpManuscriptFigures.Rmd`- contains all figures and relevant analyses for manuscript text
 - `2020CarpNetworks.Rmd`- replicates `GMM_Results.Rmd`from the 2019 season for 2020 data, using a Gaussian Mixed Model approach to identify feeding bouts, group size, and generate contact networks based on individual and combined sites within Lake Parley. Dependent upon `All_PIT.csv` for PIT Tag capture data and `SITE_1_2020.csv` through `SITE_8_2020.csv`for PIT tag reads across all eight sites.
 
 ### Raw data files
