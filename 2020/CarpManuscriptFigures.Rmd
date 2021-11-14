@@ -25,6 +25,9 @@ library(gganimate)
 library(tidyr)
 library(viridis)
 library(asnipe)
+library(PupillometryR)
+library(cowplot)
+library(DescTools)
 set.seed(1234)
 
 #set colors
@@ -36,15 +39,15 @@ col_sites<-viridis(n=8)
 ### Load 2019 data
 For 2020 data, Boat Ramp = Site 1 and Crown College = Site 3.
 ```{r load2019data}
-setwd("~/Carp")
+setwd("~/Carp/2019/")
 #load and clean Boat Ramp and College Crown Site data
-pit_capture <-read.csv("test_2019_01_21.csv", stringsAsFactors = FALSE, colClasses = "character")
+pit_capture <-read.csv("~/Carp/2019/test_2019_01_21.csv", stringsAsFactors = FALSE, colClasses = "character")
 pit_capture<- select(pit_capture, c(Lake, PIT, Length, Sex))
 pit_capture$PIT<-as.character(pit_capture$PIT)
 
 #Boat Ramp site  
 
-boatramp<-read.table("Boat_ramp_complete.log", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"))
+boatramp<-read.table("~/Carp/2019/Boat_ramp_complete.log", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"))
 boatramp<-select(boatramp, c(Date, Time, PIT, Antenna))
 
 boatramp$DATETIME<- as.POSIXct(paste(boatramp$Date,boatramp$Time), format='%Y-%m-%d %H:%M:%S', tz="CDT") #Reformat as POSIXct
@@ -60,7 +63,7 @@ boatramp$Site<-"B"
 merged_br<- merge(boatramp, pit_capture,  by="PIT")
 
 #Crown Site
-crown<-read.table("crown_complete.csv", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"), stringsAsFactors = FALSE)
+crown<-read.table("~/Carp/2019/crown_complete.csv", header=FALSE, fill=TRUE,col.names=c("D", "Date", "Time", "Time2", "HA", "PIT", "Antenna", "Col1","Col2"), na.strings=c("", "NA"), stringsAsFactors = FALSE)
 crown<-select(crown, c(Date, Time, PIT, Antenna))
 
 crown<-crown[-which(is.na(crown$Antenna)),]
@@ -354,9 +357,23 @@ l3 <-layout_in_circle(h, order=c(6, 5, 4, 3, 2, 1, 8, 7))
 plot.igraph(h,vertex.label=V(h)$name,layout=l3,edge.width=E(h)$weight/10^8, edge.color="black")
 
 #Compare edgeweights between 5--6 and 6--7
+E(h)$weight
 E(h)[23]
 E(h)[26]
 E(h)[26]$weight/E(h)[23]$weight
+
+# Version #2 including a legend for edge weights
+n<-6
+size_vec<-seq_len(n)
+sizeCut<-cut(E(h)$weight/10^8,n)
+edge_weight<-size_vec[sizeCut]
+
+setwd("~/Carp/Figures")
+png(filename="Figure_1B.png")
+plot.igraph(h, vertex.label=V(h)$name,layout=l3, edge.width=edge_weight, edge.color="black")
+scaled <- 1 + ((n-1) * (size_vec - min(size_vec) ) / (  max(size_vec) - min(size_vec) ) )
+legend('topleft', legend=levels(sizeCut), lwd=scaled, col='black')
+dev.off()
 
 ```
 ### Figure 2. Spatiotemporal data streams for Site 1
@@ -436,8 +453,9 @@ head(parley2020_gs)
 A<-ggplot(parley2020_gs, aes(groupsize)) + 
 geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[2]) + 
 scale_x_continuous(breaks=0:20)+
+  scale_y_continuous(trans = "log10")+
   xlab("Number of carp per feeding bout")+
-  ylab("Number of observations")+
+  ylab(expression(log[10]*"(Number of observations)"))+
   ggtitle("(A)")+
   theme_bw()
   # ggtitle("Lake Parley: Average group size")
@@ -454,31 +472,51 @@ A
 B<- ggplot(parley2020_gs, aes(dur_min)) + 
 geom_histogram(color="black", fill=col_year[2]) + 
 scale_x_continuous(trans = "log2")+
-  xlab("Duration of feeding bout (min)")+
-  ylab("Number of observations")+
+  scale_y_continuous(trans = "log10")+
+  xlab(expression(log[2]*"(Duration of feeding bout) (min)"))+
+  ylab(expression(log[10]*"(Number of observations)"))+
    ggtitle("(B)")+
   theme_bw()
   # ggtitle("Lake Parley: Duration of feeding bout (min)")
-
+B
 
 
 #QQ plot of group size vs. bout duration Boat Ramp (separate antenna)
-C<-ggplot(parley2020_gs, aes(x=dur_min, y=groupsize)) +
-  geom_point(size=2, shape=19, alpha=0.6)+
-  scale_x_continuous(trans = "log2")+
-  xlab("Bout duration (min)")+
-  ylab("Group size")+
-  ggtitle("(C)")+
-  theme_bw()
-  # ggtitle("Lake Parley")
+# C<-ggplot(parley2020_gs, aes(x=dur_min, y=(as.factor(groupsize)))) +
+#   # geom_point(size=2, shape=19, alpha=0.6)+
+#   geom_density() +
+#   scale_x_continuous(trans = "log2")+
+#   xlab("Bout duration (min)")+
+#   ylab("Group size")+
+#   ggtitle("(C)")+
+#   theme_bw()
+#   # ggtitle("Lake Parley")
 
-multiplot(A,B,C, cols=1)
+C <- ggplot(parley2020_gs,aes(x=as.factor(groupsize),y=dur_min, fill = as.factor(groupsize)))+
+  # geom_flat_violin(position = position_nudge(x = .2, y = 0),adjust =2)+
+  geom_boxplot()+
+  # geom_point(position = position_jitter(width = .15), size = .25, alpha=0.05)+
+  coord_flip()+theme_cowplot()+ 
+  scale_y_continuous(trans = "log2")+
+  ylab("Bout duration (min)")+
+  xlab("Group size")+
+  # ggtitle("(C)")+
+  theme(legend.position = "none") 
+C
+
+# multiplot(A,B,C, cols=1)
+
+top_row <- plot_grid(A, B) #, labels=c("(A)", "(B)"))
+
+plot_grid(top_row, C, labels=c("", "(C)"), ncol = 1)
 
 mean(parley2020_gs$dur_min)
 median(parley2020_gs$dur_min)
 max(parley2020_gs$dur_min)
 ```
+
 ### Figure 4. Superfeeders
+
 ```{r}
 start_date<-as.POSIXct("2020-07-03 12:00:00 CDT") #rounded to nearest midday
 end_date<-as.POSIXct("2020-07-23 12:00:00 CDT")
@@ -568,7 +606,7 @@ C<- ggplot(superfish_wide, aes(x=total, y=percentage_max))+
   geom_point(aes(colour = top20, shape=top20), alpha=0.5)+
   # geom_abline(intercept = 0, slope = 100/30)+
   xlab("Total number of visits")+
-  ylab("Fraction of time at top visited Site")+
+  ylab("Proportion of visits at top visited Site")+
   ggtitle("(C)")+
   # ggtitle("Relative 'Site Fidelity' for Superfeeders")+
   geom_text(aes(label = ifelse(top20 == 'TRUE', fishID, NA)), check_overlap= TRUE, colour="black", vjust="inward", hjust="inward")+
@@ -580,9 +618,44 @@ C
 multiplot(A, plot.with.inset, C, cols=1)
 top20_ID_2020<-top20_ID
 
+#Lorenz curve applied to unique daily site visits
+lorenz<-all_superfish %>% group_by(fishID) %>% summarize(nvisit=sum(nvisit)) %>% arrange(nvisit) %>% mutate(forage_activity_rank= 1:nrow(.), prop_forager= forage_activity_rank/nrow(.), cum_visits=cumsum(nvisit)/sum(nvisit), one_to_one= prop_forager)
+fwrite(lorenz, "/research-home/lwhite/Carp/Superfeeder_rankings/daily_visits2020.csv")
+
+#Gini coefficient calculation
+areaB<-AUC(x=append(0, lorenz$prop_forager), y=append(0, lorenz$cum_visits), method="trapezoid")
+areaA<-0.5-areaB
+(gini_coeff<-areaA/(areaA+areaB))
+
+lorenzA<-lorenz %>% ggplot()+geom_line(aes(x=prop_forager, y=cum_visits))+ geom_line(aes(x=prop_forager, y=one_to_one), lty="dashed")+ theme_bw()+
+  geom_vline(xintercept = 0.8 , lty="dotted", col="dark red") + 
+  geom_hline(yintercept = 0.5 , lty="dotted", col="dark red") +
+  geom_vline(xintercept = 0.59 , lty="dotted", col="dark blue") + 
+  geom_hline(yintercept = 0.2 , lty="dotted", col="dark blue") + 
+  xlab("Cumulative Fraction of Population Based on Foraging Ranking")+ ylab("Cumulative Number of\nUnique Daily Visits")+ scale_x_continuous(limits = c(0,1))+ scale_y_continuous(limits = c(0,1)) + ggtitle(paste("Lorenz Curve: 2020 Unique Daily Visits\n(Gini Coefficient:", round(gini_coeff,3), ")"))
+
+#Lorenz curve applied to cumulative total detections
+raw_superfish <- rbind(s1_corn, s2_corn, s3_corn, s4_corn, s5_corn, s6_corn, s7_corn, s8_corn, Fill=NA) %>% group_by(PIT) %>% summarise(count = n()) %>% arrange(count) %>% na.omit()
+
+lorenz<-raw_superfish %>% mutate(forage_activity_rank= 1:nrow(.), prop_forager= forage_activity_rank/nrow(.), cum_visits=cumsum(count)/sum(count), one_to_one= prop_forager)
+fwrite(lorenz, "/research-home/lwhite/Carp/Superfeeder_rankings/total_detections2020.csv")
+
+#Gini coefficient calculation
+areaB<-AUC(x=append(0, lorenz$prop_forager), y=append(0, lorenz$cum_visits), method="trapezoid")
+areaA<-0.5-areaB
+(gini_coeff<-areaA/(areaA+areaB))
+
+lorenzB<-lorenz %>% ggplot()+geom_line(aes(x=prop_forager, y=cum_visits))+ geom_line(aes(x=prop_forager, y=one_to_one), lty="dashed")+ theme_bw()+
+  geom_vline(xintercept = 0.8 , lty="dotted", col="dark red") + 
+  geom_hline(yintercept = 0.17 , lty="dotted", col="dark red") +
+  geom_vline(xintercept = 0.82 , lty="dotted", col="dark blue") + 
+  geom_hline(yintercept = 0.2 , lty="dotted", col="dark blue") + 
+  xlab("Cumulative Fraction of Population Based on Foraging Ranking")+ ylab("Cumulative Number of\nTotal Detections")+ scale_x_continuous(limits = c(0,1))+ scale_y_continuous(limits = c(0,1))+ ggtitle(paste("Lorenz Curve: 2020 Total Visits\n(Gini Coefficient:", round(gini_coeff,3), ")"))
+
 ```
 
 ### Figure 5. Co-feeding network heterogeneity and connectivity
+
 ```{r}
 # Network of Parley 
 identities<-colnames(gbi_parley2020)
@@ -657,6 +730,7 @@ multiplot(A,B, cols=2)
 ## Supplementary Figures 
 ### Suplementary Figure 1
 Total daily detections of unique carp at all sites in Parley Lake for the pre-baiting and baiting periods in (A) 2019 and (B) 2020
+
 ```{r unique_daily_visits}
 #histogram of number of unique visitors by sampling day
 #2019
@@ -773,11 +847,12 @@ S2
 
 
 ```
+
 ### Figure S3. Feeding bout group size, duration and covariation for 2019 season.
 
 ```{r}
-events_parley1 <- readRDS("~/Carp/events_parley1.RDS")
-gbi_parley1 <- readRDS("~/Carp/gbi_parley1.RDS")
+events_parley1 <- readRDS("~/Carp/2019/events_parley1.RDS")
+gbi_parley1 <- readRDS("~/Carp/2019/gbi_parley1.RDS")
 
 parley_gs1<-data.frame(bout=1:nrow(gbi_parley1), groupsize=rowSums(gbi_parley1))
 parley_gs1$dur<-events_parley1$End-events_parley1$Start
@@ -804,23 +879,45 @@ geom_histogram(binwidth=1,boundary=-0.5, color="black", fill=col_year[1]) +
   # ggtitle("Parley (combined antenna): Duration of feeding bout (min)")
 
 
-C<-ggplot(parley_gs1, aes(x=dur_min, y=groupsize)) +
-  geom_point(size=2, shape=19, alpha=0.6)+
-  scale_x_continuous(trans = "log2")+
-  xlab("Bout duration (min)")+
-  ylab("Group size")+
-  ggtitle("(C)")+
-  theme_bw()
-  # ggtitle("Parley (combined antenna)")
+# C<-ggplot(parley_gs1, aes(x=dur_min, y=groupsize)) +
+#   geom_point(size=2, shape=19, alpha=0.6)+
+#   scale_x_continuous(trans = "log2")+
+#   xlab("Bout duration (min)")+
+#   ylab("Group size")+
+#   ggtitle("(C)")+
+#   theme_bw()
+#   # ggtitle("Parley (combined antenna)")
+# 
+# 
+# multiplot(A,B,C, cols=1)
 
 
-multiplot(A,B,C, cols=1)
+C <- ggplot(parley_gs1,aes(x=as.factor(groupsize),y=dur_min, fill = as.factor(groupsize)))+
+  # geom_flat_violin(position = position_nudge(x = .2, y = 0),adjust =2)+
+  geom_boxplot()+
+  # geom_point(position = position_jitter(width = .15), size = .25, alpha=0.05)+
+  coord_flip()+theme_cowplot()+ 
+  scale_y_continuous(trans = "log2")+
+  ylab("Bout duration (min)")+
+  xlab("Group size")+
+  # ggtitle("(C)")+
+  theme(legend.position = "none") 
+C
+
+# multiplot(A,B,C, cols=1)
+
+top_row <- plot_grid(A, B) #, labels=c("(A)", "(B)"))
+
+plot_grid(top_row, C, labels=c("", "(C)"), label_size=13, label_fontface = "plain", ncol = 1)
+
 
 mean(parley_gs1$dur_min)
 median(parley_gs1$dur_min)
 max(parley_gs1$dur_min)
 ```
+
 ### Figure S4. Superfeeder plots for all sites.
+
 ```{r}
 #2019
 start_date<-as.POSIXct("2019-07-30 12:00:00 CDT") #rounded to nearest midday
@@ -957,6 +1054,10 @@ length_top20<-superfeeder_length$Length[which(superfeeder_length$top20==TRUE)]
 length_remaining80<-superfeeder_length$Length[which(superfeeder_length$top20==FALSE)]
 t.test(length_top20, length_remaining80, var.equal=FALSE)
 
+superfeeder_length$top20<-superfeeder_length$top20*1
+mylogit <- glm(top20 ~ Length, data = superfeeder_length, family = "binomial")
+summary(mylogit)
+
 ```
 ### Supplemental Figure 6. Superfeeding results for 2019
 
@@ -1018,7 +1119,7 @@ B<- ggplot(superfish_wide, aes(x=total, y=percentage_max))+
   geom_point(aes(colour = top20, shape=top20), alpha=0.5)+
   # geom_abline(intercept = 0, slope = 100/30)+
   xlab("Total number of visits")+
-  ylab("Fraction of time at top visited Site")+
+  ylab("Proportion of visits at top visited Site")+
   ggtitle("(B)")+
   # ggtitle("Relative 'Site Fidelity' for Superfeeders")+
   geom_text(aes(label = ifelse(top20 == 'TRUE', fishID, NA)), check_overlap= TRUE, colour="black", vjust="inward", hjust="inward")+
@@ -1036,3 +1137,47 @@ sum(top20_ID_2020 %in% top20_ID_2019)
 length(top20_ID_2020)
 top20_ID_2020[which(top20_ID_2020 %in% top20_ID_2019)]
 ```
+### Lorenz Curves and Gini Coefficients for 2019 & 2020 Seasons
+```{r}
+#Gini curve for unique daily visits
+lorenz<-all_superfish %>% group_by(fishID) %>% summarize(nvisit=sum(nvisit)) %>% arrange(nvisit) %>% mutate(forage_activity_rank= 1:nrow(.), prop_forager= forage_activity_rank/nrow(.), cum_visits=cumsum(nvisit)/sum(nvisit), one_to_one= prop_forager)
+fwrite(lorenz, "/research-home/lwhite/Carp/Superfeeder_rankings/daily_visits2019.csv")
+
+#Gini coefficient calculation
+areaB<-AUC(x=append(0, lorenz$prop_forager), y=append(0, lorenz$cum_visits), method="trapezoid")
+areaA<-0.5-areaB
+(gini_coeff<-areaA/(areaA+areaB))
+
+lorenzC<-lorenz %>% ggplot()+geom_line(aes(x=prop_forager, y=cum_visits))+ geom_line(aes(x=prop_forager, y=one_to_one), lty="dashed")+ theme_bw()+
+  geom_vline(xintercept = 0.8 , lty="dotted", col="dark red") + 
+  geom_hline(yintercept = 0.62 , lty="dotted", col="dark red") +
+  geom_vline(xintercept = 0.5 , lty="dotted", col="dark blue") + 
+  geom_hline(yintercept = 0.2 , lty="dotted", col="dark blue") + 
+  xlab("Cumulative Fraction of Population Based on Foraging Ranking")+ ylab("Cumulative Number of\nUnique Daily Visits")+ scale_x_continuous(limits = c(0,1))+ scale_y_continuous(limits = c(0,1))+ ggtitle(paste("Lorenz Curve: 2019 Unique Daily Visits\n(Gini Coefficient:", round(gini_coeff,3), ")"))
+
+
+
+## Gini curve for raw total counts
+br_raw_count <-br_corn %>% group_by(PIT) %>% summarise(count = n()) %>% arrange(count)
+crown_raw_count <-crown_corn %>% group_by(PIT) %>% summarise(count = n()) %>% arrange(count)
+raw_count2019<-bind_rows(br_raw_count, crown_raw_count) %>% group_by(PIT) %>% summarize(count=sum(count))%>% arrange(count)
+
+lorenz<-raw_count2019 %>% mutate(forage_activity_rank= 1:nrow(.), prop_forager= forage_activity_rank/nrow(.), cum_visits=cumsum(count)/sum(count), one_to_one= prop_forager)
+fwrite(lorenz, "/research-home/lwhite/Carp/Superfeeder_rankings/total_detections2019.csv")
+
+#Gini coefficient calculation
+areaB<-AUC(x=append(0, lorenz$prop_forager), y=append(0, lorenz$cum_visits), method="trapezoid")
+areaA<-0.5-areaB
+(gini_coeff<-areaA/(areaA+areaB))
+
+lorenzD<-lorenz %>% ggplot()+geom_line(aes(x=prop_forager, y=cum_visits))+ geom_line(aes(x=prop_forager, y=one_to_one), lty="dashed")+ theme_bw()+
+  geom_vline(xintercept = 0.8 , lty="dotted", col="dark red") + 
+  geom_hline(yintercept = 0.34 , lty="dotted", col="dark red") +
+  geom_vline(xintercept = 0.71 , lty="dotted", col="dark blue") + 
+  geom_hline(yintercept = 0.2 , lty="dotted", col="dark blue") + 
+  xlab("Cumulative Fraction of Population Based on Foraging Ranking")+ ylab("Cumulative Number\nof Total Detections")+ scale_x_continuous(limits = c(0,1))+ scale_y_continuous(limits = c(0,1))+ ggtitle(paste("Lorenz Curve: 2019 Total Visits\n(Gini Coefficient:", round(gini_coeff,3), ")"))
+
+plot_grid(lorenzA, lorenzB, lorenzC, lorenzD, ncol=2, labels="AUTO")
+```
+
+
