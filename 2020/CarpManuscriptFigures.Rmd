@@ -136,6 +136,9 @@ length(unique(crown_corn$PIT))
 #how many fish appeared in both BR and Crown sites?
 sum(unique(crown_corn$PIT) %in% unique(br_corn$PIT))
 
+#first detection 2019
+first_detect_2019<-total_corn %>% group_by(PIT) %>% arrange(DATETIME) %>% summarize(DATEIME=first(DATETIME))
+
 ```
 
 ### Load 2020 data
@@ -200,6 +203,12 @@ s8_corn<- merged_s8 %>% filter(DATETIME >=as.POSIXct("2020-07-03 12:00:00", tz="
 
 ### Captures and Detections in 2020
 ```{r 2020captures}
+#Size range and sex summary of tagged carp
+pit_capture<-pit_capture %>% mutate(Length=as.numeric(Length), Sex=as.factor(Sex))
+summary(pit_capture)
+sd(pit_capture$Length, na.rm=TRUE)
+
+
 #In 2020, how many total detections were there in Parley?
 nrow(all_sites)
 
@@ -226,6 +235,9 @@ sum(!(unique(all_sites_corn$PIT) %in% unique(total_corn$PIT)))
 
 #How many total detections for 2019 & 2020 in the pre-baiting and baiting periods?
 nrow(total_natural)+ nrow(total_corn)+ nrow(all_sites_natural)+nrow(all_sites_corn)
+
+###First detection date
+first_detect2020<-all_sites_corn %>% group_by(PIT) %>% arrange(DATETIME) %>% summarize(DATEIME=first(DATETIME))
 
 ```
 ## Supplemental Table 1
@@ -375,6 +387,16 @@ scaled <- 1 + ((n-1) * (size_vec - min(size_vec) ) / (  max(size_vec) - min(size
 legend('topleft', legend=levels(sizeCut), lwd=scaled, col='black')
 dev.off()
 
+#plot distance vs. edge weight
+setwd("~/Carp/2020")
+library(readxl)
+  distances<-read_excel("distance.xlsx") %>% rename(Site=`...1`) %>% pivot_longer(!Site, names_to = "Site2", values_to = "Distance") %>% filter(Distance!="x")%>% mutate(Distance=as.numeric(Distance)) %>%
+  unite("edge", Site:Site2, sep = "--", remove = FALSE)
+  
+  edges<-data.frame(Site=get.edgelist(h)[,1], Site2=get.edgelist(h)[,2], weight=E(h)$weight) %>% 
+  unite("edge", Site:Site2, sep = "--", remove = FALSE) %>% left_join(distances, by=c("edge"))
+  
+C<-  edges %>% ggplot(aes(x=Distance, y=weight))+ geom_point(alpha=0.5)+ theme_classic()+xlab("Distance (m)")+ ylab("Edge weight")+ geom_text(aes(label = edge), check_overlap= TRUE, colour="black",vjust="inward", hjust="inward", nudge_x=100) 
 ```
 ### Figure 2. Spatiotemporal data streams for Site 1
 ```{r}
@@ -515,7 +537,7 @@ median(parley2020_gs$dur_min)
 max(parley2020_gs$dur_min)
 ```
 
-### Figure 4. Superfeeders
+### Figure 4. Superfeeders (Unique Daily Detections)
 
 ```{r}
 start_date<-as.POSIXct("2020-07-03 12:00:00 CDT") #rounded to nearest midday
@@ -654,6 +676,114 @@ lorenzB<-lorenz %>% ggplot()+geom_line(aes(x=prop_forager, y=cum_visits))+ geom_
 
 ```
 
+### Figure 4.v2 Superfeeders (Total Daily Detections)
+
+```{r}
+start_date<-as.POSIXct("2020-07-03 12:00:00 CDT") #rounded to nearest midday
+end_date<-as.POSIXct("2020-07-23 12:00:00 CDT")
+
+#Lorenz curve applied to cumulative total detections
+raw_superfish <- rbind(s1_corn, s2_corn, s3_corn, s4_corn, s5_corn, s6_corn, s7_corn, s8_corn, Fill=NA) %>%  filter(DATETIME >= start_date & DATETIME <= end_date) %>% group_by(PIT) %>% summarise(count = n()) %>% arrange(count) %>% na.omit()
+
+lorenz<-raw_superfish %>% mutate(forage_activity_rank= 1:nrow(.), prop_forager= forage_activity_rank/nrow(.), cum_visits=cumsum(count)/sum(count), one_to_one= prop_forager)
+# fwrite(lorenz, "/research-home/lwhite/Carp/Superfeeder_rankings/total_detections2020.csv")
+
+#Gini coefficient calculation
+areaB<-AUC(x=append(0, lorenz$prop_forager), y=append(0, lorenz$cum_visits), method="trapezoid")
+areaA<-0.5-areaB
+(gini_coeff<-areaA/(areaA+areaB))
+
+lorenzB<-lorenz %>% ggplot()+geom_line(aes(x=prop_forager, y=cum_visits))+ geom_line(aes(x=prop_forager, y=one_to_one), lty="dashed")+ theme_bw()+
+  geom_vline(xintercept = 0.8 , lty="dotted", col="dark red") + 
+  geom_hline(yintercept = 0.17 , lty="dotted", col="dark red") +
+  geom_vline(xintercept = 0.82 , lty="dotted", col="dark blue") + 
+  geom_hline(yintercept = 0.2 , lty="dotted", col="dark blue") + 
+  xlab("Cumulative Fraction of Population Based on Foraging Ranking")+ ylab("Cumulative Number of\nTotal Detections")+ scale_x_continuous(limits = c(0,1))+ scale_y_continuous(limits = c(0,1))+ ggtitle("(A)")
+  
+  #ggtitle(paste("Lorenz Curve: 2020 Total Visits\n(Gini Coefficient:", round(gini_coeff,3), ")"))
+
+#Plot total visits as a summation of visits across sites by FishID
+all_superfish <- rbind(s1_corn, s2_corn, s3_corn, s4_corn, s5_corn, s6_corn, s7_corn, s8_corn, Fill=NA) %>% filter(DATETIME >= start_date & DATETIME <= end_date) %>% group_by(PIT, Site) %>% summarise(nvisit = n()) %>% arrange(nvisit) %>% na.omit() %>% rename(fishID=PIT)
+
+superfish_wide <- spread(all_superfish, Site, nvisit) #convert from long to wide data format
+# superfish_wide <- subset(superfish_wide,select = fishID:Site8)
+superfish_wide[is.na(superfish_wide)] <- 0 #convert NAs to zero
+superfish_wide$total <- rowSums(superfish_wide[2:9])
+superfish_wide<-superfish_wide[order(superfish_wide$total, decreasing=TRUE),]
+# superfish_wide$short_lab<-LETTERS[seq( from = 1, to = nrow(superfish_wide))]
+
+all_superfish$fishID <- factor(all_superfish$fishID, levels = superfish_wide$fishID[order(superfish_wide$total, decreasing=TRUE)])
+
+# top20<-round(length(levels(all_superfish$fishID))*.18)
+top20<-which(lorenz$prop_forager>0.82)[1]
+# cutoff<-levels(all_superfish$fishID)[top20]
+cutoff<-lorenz$PIT[top20]
+
+B<-ggplot(all_superfish, aes(fill=Site, y=nvisit, x=fishID))+ 
+    geom_col()+
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line=element_blank(), axis.text.x=element_blank(), axis.ticks = element_blank())+
+    # scale_y_continuous(trans = "log2")+
+    scale_fill_viridis(discrete=TRUE, name = "Site", labels = c("Site 1", "Site 2", "Site 3", "Site 4", "Site 5", "Site 6", "Site 7", "Site 8"))+
+    labs(y= "Total cumulative detections", x = "Individual carp")+
+    geom_vline(xintercept=which(levels(all_superfish$fishID) == cutoff))+
+    ggtitle("(B)")
+B
+
+levels(all_superfish$fishID)
+top20_ID<-levels(all_superfish$fishID)[1:which(levels(all_superfish$fishID)==cutoff)]
+top20_superfish<-all_superfish[which(all_superfish$fishID %in% top20_ID),]
+
+inset.plot<- ggplot(top20_superfish, aes(fill=Site, y=nvisit, x=fishID))+ 
+    geom_col()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.ticks = element_blank(), axis.text.x = element_text(size=6, angle = 90, hjust = 1), legend.position = "none")+
+    scale_fill_viridis(discrete=TRUE, name = "Site", labels = c("Site 1", "Site 2", "Site 3", "Site 4", "Site 5", "Site 6", "Site 7", "Site 8"))+
+    labs(y= "Visits", x = "")
+inset.plot
+
+library(cowplot)
+
+plot.with.inset <-
+  ggdraw() +
+  draw_plot(B) +
+  draw_plot(inset.plot, x = 0.3, y = .45, width = .55, height = .55)
+plot.with.inset
+
+#scatter plot of number of visits vs % of time spent at preferred/dominate/most detected site
+superfeeder_bool<-data.frame(fishID=all_superfish$fishID, top20=(all_superfish$fishID %in% top20_ID))
+superfish_wide$max_per_site<- apply(X=superfish_wide[,2:9], MARGIN=1, FUN=max)
+superfish_wide$percentage_max<-superfish_wide$max_per_site/superfish_wide$total*100
+superfish_wide$top20<-superfeeder_bool$top20[match(superfish_wide$fishID,superfeeder_bool$fishID)]
+  
+C<- ggplot(superfish_wide, aes(x=total, y=percentage_max))+
+  geom_point(aes(colour = top20, shape=top20), alpha=0.5)+
+  # geom_abline(intercept = 0, slope = 100/30)+
+  xlab("Total number of visits")+
+  ylab("Proportion of visits at top \nvisited Site")+
+  ggtitle("(C)")+
+  # ggtitle("Relative 'Site Fidelity' for Superfeeders")+
+  geom_text(aes(label = ifelse(top20 == 'TRUE', fishID, NA)), check_overlap= TRUE, colour="black", vjust="inward", hjust="inward")+
+  scale_shape_manual(name="Individual \ncarp", labels = c("Non-superfeeders", "Superfeeders"), values=c(15,17))+
+  scale_colour_manual(name="Individual \ncarp", labels = c("Non-superfeeders", "Superfeeders"), values=col_sfeeder)+
+  theme_bw()
+C
+
+multiplot(lorenzB, plot.with.inset, C, cols=1)
+top20_ID_2020<-top20_ID
+
+site_fidelity_top20<-superfish_wide %>% filter(top20==TRUE) %>% select(percentage_max)
+site_fidelity_remaining80 <-superfish_wide %>% filter(top20==FALSE) %>% select(percentage_max)
+
+mean(site_fidelity_top20$percentage_max)
+mean(site_fidelity_remaining80$percentage_max, na.rm=TRUE)
+sd(site_fidelity_top20$percentage_max)
+sd(site_fidelity_remaining80$percentage_max)
+t.test(site_fidelity_top20$percentage_max, site_fidelity_remaining80$percentage_max, var.equal=FALSE) 
+
+superfish_wide2020<-superfish_wide
+```
+
 ### Figure 5. Co-feeding network heterogeneity and connectivity
 
 ```{r}
@@ -671,7 +801,7 @@ deg_weighted <- graph.strength(net)
 deg<-igraph::degree(net)
 hist(deg_weighted, main="Histogram of Weighted Degree for Parley Network")
 hist(deg, main="Histogram of Degree for Parley Network")
-V(net)$size <- deg_weighted*10
+V(net)$size <- deg #deg_weighted*10
 
 V(net)$top20=as.character(superfeeder_bool$top20[match(V(net)$name,superfeeder_bool$fishID)]) 
 V(net)$color=V(net)$top20
@@ -687,9 +817,9 @@ library(ggnetwork)
 n<-ggnetwork(net)
 A<-ggplot(n, aes(x = x, y = y, xend = xend, yend = yend)) +
   geom_edges(color = "lightgrey", alpha=0.4) +
-  geom_nodes(aes(color = top20, size = weight)) +
+  geom_nodes(aes(color = top20, size = size)) +
   scale_color_manual(name="Individual \ncarp", labels = c("Non-superfeeders", "Superfeeders"), values=col_sfeeder)+
-  scale_size_continuous(name="Weighted degree")+
+  scale_size_continuous(name="Degree")+
   theme_blank()+
   ggtitle("(A)")
 
@@ -723,12 +853,41 @@ B
 
 plot_grid(A, B, labels = c('A', 'B'))
 multiplot(A,B, cols=2)
-  
+
+network_stats_top20<- network_stats_parley2020 %>% filter(top20==TRUE)
+network_stats_bottom80 <- network_stats_parley2020 %>% filter(top20==TRUE)
+
+#Degree
+degree_top20<-network_stats_parley2020 %>% filter(top20==TRUE) %>% select(degree)
+degree_remaining80<-network_stats_parley2020 %>% filter(top20==FALSE) %>% select(degree)
+mean(degree_top20$degree)
+mean(degree_remaining80$degree)
+sd(degree_top20$degree)
+sd(degree_remaining80$degree)
+t.test(degree_top20, degree_remaining80, var.equal=FALSE)
+
+#Weighted degree
+weighted_top20<-network_stats_parley2020 %>% filter(top20==TRUE) %>% select(weighted_degree)
+weighted_remaining80<-network_stats_parley2020 %>% filter(top20==FALSE) %>% select(weighted_degree)
+mean(weighted_top20$weighted_degree)
+mean(weighted_remaining80$weighted_degree)
+sd(weighted_top20$weighted_degree)
+sd(weighted_remaining80$weighted_degree)
+t.test(weighted_top20, weighted_remaining80, var.equal=FALSE)
+
+#Betweenness
+betweenness_top20<-network_stats_parley2020 %>% filter(top20==TRUE) %>% select(betweenness)
+betweenness_remaining80<-network_stats_parley2020 %>% filter(top20==FALSE) %>% select(betweenness)
+mean(betweenness_top20$betweenness)
+mean(betweenness_remaining80$betweenness)
+sd(betweenness_top20$betweenness)
+sd(betweenness_remaining80$betweenness)
+t.test(betweenness_top20, betweenness_remaining80, var.equal=FALSE)  
 ```
 
 
 ## Supplementary Figures 
-### Suplementary Figure 1
+### Figure S1
 Total daily detections of unique carp at all sites in Parley Lake for the pre-baiting and baiting periods in (A) 2019 and (B) 2020
 
 ```{r unique_daily_visits}
@@ -811,7 +970,7 @@ multiplot(A, B, cols=1)
 ```
 
 
-### Suplementary Figure 2. Diel cycle
+### Figure S2. Diel cycle
 The probability density curve based on the total number of detections across a 24-hour cycle for the baiting period in both 2019 and 2020 in Parley Lake. 
 
 ```{r diel_patterns}
@@ -1040,26 +1199,42 @@ superfish_wide<-superfish_wide %>% rename(PIT =fishID)
     
 superfeeder_length<-merge(superfish_wide, pit_capture, by="PIT")
 superfeeder_length$Length<-as.numeric(superfeeder_length$Length)
-ggplot(superfeeder_length, aes(x=as.factor(top20), y=Length))+
+A<- ggplot(superfeeder_length, aes(x=as.factor(top20), y=Length))+
   geom_boxplot()+
   stat_summary(fun.y=mean, geom="point", shape=23, size=3, colour="blue")+
   geom_jitter(shape=16, alpha=0.6, position=position_jitter(0.2))+
-  theme(panel.background = element_blank())+
+  # theme(panel.background = element_blank())+
+  theme_classic()+
   xlab("")+
   ylab("Length (mm)")+
-  scale_x_discrete(labels=c("Non-superfeeders", "Superfeeders"))
+  scale_x_discrete(labels=c("Non-superfeeders", "Superfeeders"))+
+  ggtitle("(A)")
 
 
 length_top20<-superfeeder_length$Length[which(superfeeder_length$top20==TRUE)]
 length_remaining80<-superfeeder_length$Length[which(superfeeder_length$top20==FALSE)]
+mean(length_top20, na.rm=TRUE)
+mean(length_remaining80, na.rm=TRUE)
+sd(length_top20, na.rm=TRUE)
+sd(length_remaining80, na.rm=TRUE)
 t.test(length_top20, length_remaining80, var.equal=FALSE)
 
 superfeeder_length$top20<-superfeeder_length$top20*1
 mylogit <- glm(top20 ~ Length, data = superfeeder_length, family = "binomial")
 summary(mylogit)
+exp(mylogit$coefficients["Length"])
 
+newdat <- data.frame(Length=seq(min(superfeeder_length$Length, na.rm=TRUE), max(superfeeder_length$Length, na.rm=TRUE),len=100))
+newdat$top20 = predict(mylogit, newdata=newdat, type="response")
+# plot(top20~Length, data=superfeeder_length, col="red4")
+# lines(top20 ~ Length, newdat, col="green4", lwd=2)
+
+B<-superfeeder_length %>% ggplot()+ geom_point(aes(x=Length, y=top20))+ geom_line(data=newdat, aes(x=Length, y=top20))+ xlab("Length (mm)") + ylab("Probability of being a superfeeder")+ theme_classic()+
+  ggtitle("(B)")
+
+multiplot(A, B, cols=2)
 ```
-### Supplemental Figure 6. Superfeeding results for 2019
+### Figure S6. Superfeeding results for 2019 (unique daily visits)
 
 ```{r}
 #Combined plot showing site preference and number of detected visits by fish
@@ -1136,8 +1311,10 @@ length(top20_ID_2019)
 sum(top20_ID_2020 %in% top20_ID_2019)
 length(top20_ID_2020)
 top20_ID_2020[which(top20_ID_2020 %in% top20_ID_2019)]
+
+superfish_wide2019<-superfish_wide
 ```
-### Lorenz Curves and Gini Coefficients for 2019 & 2020 Seasons
+### Lorenz Curves and Gini Coefficients for 2019 Seasons
 ```{r}
 #Gini curve for unique daily visits
 lorenz<-all_superfish %>% group_by(fishID) %>% summarize(nvisit=sum(nvisit)) %>% arrange(nvisit) %>% mutate(forage_activity_rank= 1:nrow(.), prop_forager= forage_activity_rank/nrow(.), cum_visits=cumsum(nvisit)/sum(nvisit), one_to_one= prop_forager)
@@ -1179,5 +1356,144 @@ lorenzD<-lorenz %>% ggplot()+geom_line(aes(x=prop_forager, y=cum_visits))+ geom_
 
 plot_grid(lorenzA, lorenzB, lorenzC, lorenzD, ncol=2, labels="AUTO")
 ```
+### Figure S6.v2 Superfeeding results for 2019 (Total cumulative visits)
 
+```{r}
+
+## Gini curve for raw total counts
+br_raw_count <-br_corn %>% group_by(PIT) %>% summarise(count = n()) %>% arrange(count) %>% mutate(Site="1")
+crown_raw_count <-crown_corn %>% group_by(PIT) %>% summarise(count = n()) %>% arrange(count) %>% mutate(Site="3")
+raw_count2019<-bind_rows(br_raw_count, crown_raw_count) %>% group_by(PIT) %>% summarize(count=sum(count))%>% arrange(count)
+
+lorenz<-raw_count2019 %>% mutate(forage_activity_rank= 1:nrow(.), prop_forager= forage_activity_rank/nrow(.), cum_visits=cumsum(count)/sum(count), one_to_one= prop_forager)
+
+#Gini coefficient calculation
+areaB<-AUC(x=append(0, lorenz$prop_forager), y=append(0, lorenz$cum_visits), method="trapezoid")
+areaA<-0.5-areaB
+(gini_coeff<-areaA/(areaA+areaB))
+
+lorenzD<-lorenz %>% ggplot()+geom_line(aes(x=prop_forager, y=cum_visits))+ geom_line(aes(x=prop_forager, y=one_to_one), lty="dashed")+ theme_bw()+
+  geom_vline(xintercept = 0.8 , lty="dotted", col="dark red") + 
+  geom_hline(yintercept = 0.34 , lty="dotted", col="dark red") +
+  geom_vline(xintercept = 0.71 , lty="dotted", col="dark blue") + 
+  geom_hline(yintercept = 0.2 , lty="dotted", col="dark blue") + 
+  xlab("Cumulative Fraction of Population Based on Foraging Ranking")+ ylab("Cumulative Number\nof Total Detections")+ scale_x_continuous(limits = c(0,1))+ scale_y_continuous(limits = c(0,1))+ ggtitle("(A)")
+# + ggtitle(paste("Lorenz Curve: 2019 Total Visits\n(Gini Coefficient:", round(gini_coeff,3), ")"))
+
+
+#Plot total visits as a summation of visits across sites by FishID
+all_superfish <- bind_rows(br_raw_count, crown_raw_count) %>% group_by(PIT, Site) %>% arrange(count) %>% na.omit() %>% rename(fishID=PIT, nvisit=count) 
+
+superfish_wide <- spread(all_superfish, Site, nvisit) #convert from long to wide data format
+# superfish_wide <- subset(superfish_wide,select = fishID:Site8)
+superfish_wide[is.na(superfish_wide)] <- 0 #convert NAs to zero
+superfish_wide$total <- rowSums(superfish_wide[2:3])
+superfish_wide<-superfish_wide[order(superfish_wide$total, decreasing=TRUE),]
+# superfish_wide$short_lab<-LETTERS[seq( from = 1, to = nrow(superfish_wide))]
+
+all_superfish$fishID <- factor(all_superfish$fishID, levels = superfish_wide$fishID[order(superfish_wide$total, decreasing=TRUE)])
+
+# top20<-round(length(levels(all_superfish$fishID))*.18)
+top20<-which(lorenz$prop_forager>0.71)[1]
+# cutoff<-levels(all_superfish$fishID)[top20]
+cutoff<-lorenz$PIT[top20]
+
+B<-ggplot(all_superfish, aes(fill=Site, y=nvisit, x=fishID))+ 
+    geom_col()+
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line=element_blank(), axis.text.x=element_blank(), axis.ticks = element_blank())+
+    # scale_y_continuous(trans = "log2")+
+    scale_fill_manual(name = "Site", labels = c("Site 1", "Site 3"), values=c(col_sites[1], col_sites[3]))+
+    labs(y= "Total cumulative detections", x = "Individual carp")+
+    geom_vline(xintercept=which(levels(all_superfish$fishID) == cutoff))+
+    ggtitle("(B)")
+B
+
+levels(all_superfish$fishID)
+top20_ID<-levels(all_superfish$fishID)[1:which(levels(all_superfish$fishID)==cutoff)]
+top20_superfish<-all_superfish[which(all_superfish$fishID %in% top20_ID),]
+
+inset.plot<- ggplot(top20_superfish, aes(fill=Site, y=nvisit, x=fishID))+ 
+    geom_col()+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.ticks = element_blank(), axis.text.x = element_text(size=6, angle = 90, hjust = 1), legend.position = "none")+
+    scale_fill_manual(name = "Site", labels = c("Site 1", "Site 3"), values=c(col_sites[1], col_sites[3]))+
+    labs(y= "Visits", x = "")
+inset.plot
+
+library(cowplot)
+
+plot.with.inset <-
+  ggdraw() +
+  draw_plot(B) +
+  draw_plot(inset.plot, x = 0.3, y = .45, width = .55, height = .55)
+plot.with.inset
+
+#scatter plot of number of visits vs % of time spent at preferred/dominate/most detected site
+superfeeder_bool<-data.frame(fishID=all_superfish$fishID, top20=(all_superfish$fishID %in% top20_ID))
+superfish_wide$max_per_site<- apply(X=superfish_wide[,2:3], MARGIN=1, FUN=max)
+superfish_wide$percentage_max<-superfish_wide$max_per_site/superfish_wide$total*100
+superfish_wide$top20<-superfeeder_bool$top20[match(superfish_wide$fishID,superfeeder_bool$fishID)]
+  
+C<- ggplot(superfish_wide, aes(x=total, y=percentage_max))+
+  geom_point(aes(colour = top20, shape=top20), alpha=0.5)+
+  # geom_abline(intercept = 0, slope = 100/30)+
+  xlab("Total number of visits")+
+  ylab("Proportion of visits at top \nvisited Site")+
+  ggtitle("(C)")+
+  # ggtitle("Relative 'Site Fidelity' for Superfeeders")+
+  geom_text(aes(label = ifelse(top20 == 'TRUE', fishID, NA)), check_overlap= TRUE, colour="black", vjust="inward", hjust="inward")+
+  scale_shape_manual(name="Individual \ncarp", labels = c("Non-superfeeders", "Superfeeders"), values=c(15,17))+
+  scale_colour_manual(name="Individual \ncarp", labels = c("Non-superfeeders", "Superfeeders"), values=col_sfeeder)+
+  theme_bw()
+C
+
+top20_ID_2019<-top20_ID
+multiplot(lorenzD, plot.with.inset, C, cols=1)
+
+site_fidelity_top20<-superfish_wide %>% filter(top20==TRUE) %>% select(percentage_max)
+site_fidelity_remaining80 <-superfish_wide %>% filter(top20==FALSE) %>% select(percentage_max)
+
+mean(site_fidelity_top20$percentage_max)
+mean(site_fidelity_remaining80$percentage_max, na.rm=TRUE)
+sd(site_fidelity_top20$percentage_max)
+sd(site_fidelity_remaining80$percentage_max)
+t.test(site_fidelity_top20$percentage_max, site_fidelity_remaining80$percentage_max, var.equal=FALSE) 
+
+superfish_wide2019<-superfish_wide
+```
+
+### Appendix Figure 7. Superfeeder vs. non-superfeeder date of first detection
+```{r}
+#2020
+A <-first_detect2020 %>% mutate(time_since= difftime(DATEIME, min(first_detect2020$DATEIME), units="days")) %>% left_join(superfish_wide2020 %>% select(fishID, top20) %>% rename(PIT=fishID), by="PIT") %>% ggplot(aes(x=DATEIME, y=as.factor(top20)))+ geom_point(alpha=0.5)+ geom_boxplot()+ theme_classic()+xlab("Date (2020)")+ylab("Superfeeder") + ggtitle("(A)")
+
+#2019
+# breaks.index <- seq.POSIXt(from=as.POSIXct(min(first_detect$DATEIME), format="%Y-%m-%d"), to=as.POSIXct(min(first_detect$DATEIME), format="%Y-%m-%d"), by="1 week")
+
+
+B<-first_detect_2019 %>% left_join(superfish_wide2019 %>% select(fishID, top20) %>% rename(PIT=fishID), by="PIT") %>% #mutate(DATETIME=as.numeric(DATEIME))%>% 
+  ggplot(aes(x=DATEIME, y=as.factor(top20)))+ geom_point(alpha=0.5)+ geom_boxplot()+ 
+  theme_classic()+xlab("Date (2019)")+ ylab("Superfeeder") + ggtitle("(B)") #+  scale_x_datetime(breaks = breaks.index, labels = format(breaks.index, "%Y-%m-%d"))
+
+multiplot(A, B, cols=1)
+
+detection_date_2020_SF<-first_detect2020 %>% mutate(time_since= difftime(DATEIME, min(first_detect2020$DATEIME), units="days")) %>% left_join(superfish_wide2020 %>% select(fishID, top20) %>% rename(PIT=fishID), by="PIT") %>% filter(top20==TRUE)
+median(detection_date_2020_SF$DATEIME)
+median(detection_date_2020_SF$time_since)
+
+detection_date_2020_NSF<-first_detect2020 %>% mutate(time_since= difftime(DATEIME, min(first_detect2020$DATEIME), units="days")) %>% left_join(superfish_wide2020 %>% select(fishID, top20) %>% rename(PIT=fishID), by="PIT") %>% filter(top20==FALSE)
+median(detection_date_2020_NSF$DATEIME, na.rm=TRUE)
+median(detection_date_2020_NSF$time_since, na.rm=TRUE)
+
+
+detection_date_2019_SF<-first_detect_2019 %>% mutate(time_since= difftime(DATEIME, min(first_detect_2019$DATEIME), units="days")) %>% left_join(superfish_wide2019 %>% select(fishID, top20) %>% rename(PIT=fishID), by="PIT") %>% filter(top20==TRUE)
+median(detection_date_2019_SF$DATEIME)
+median(detection_date_2019_SF$time_since)
+
+detection_date_2019_NSF<-first_detect_2019 %>% mutate(time_since= difftime(DATEIME, min(first_detect_2019$DATEIME), units="days"))%>% left_join(superfish_wide2019 %>% select(fishID, top20) %>% rename(PIT=fishID), by="PIT") %>% filter(top20==FALSE)
+median(detection_date_2019_NSF$DATEIME, na.rm=TRUE)
+median(detection_date_2019_NSF$time_since, na.rm=TRUE)
+
+```
 
