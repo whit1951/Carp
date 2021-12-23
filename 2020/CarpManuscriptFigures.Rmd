@@ -1496,4 +1496,18 @@ median(detection_date_2019_NSF$DATEIME, na.rm=TRUE)
 median(detection_date_2019_NSF$time_since, na.rm=TRUE)
 
 ```
+### Compare superfeeders in 2019 vs. 2020
+```{r compare-superfeeders}
+top20_ID_2019
+length(top20_ID_2019)
+top20_ID_2020
+length(top20_ID_2020)
+
+sum(top20_ID_2020 %in% top20_ID_2019)/length(top20_ID_2019)
+
+sum(top20_ID_2019 %in% top20_ID_2020)/length(top20_ID_2020)
+top20_ID_2019[top20_ID_2020 %in% top20_ID_2019]
+
+top20_ID_2020[top20_ID_2019 %in% top20_ID_2020]
+```
 
