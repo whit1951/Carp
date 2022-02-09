@@ -1,4 +1,6 @@
 # Carp
+Data, analysis, and figure generation for: Hundt, PJ, White, LA, Craft, ME, Bajer, PG. "Social associations in common carp (Cyprinus carpio): insights from induced feeding aggregations for targeted management strategies." *Ecology & Evolution*
+
 ## 2020 Season (all contained within 2020 folder)
 Carp PIT tag data analysis for 2019 field season for Lake Parley for sites 1-8. 2019 Boat Ramp = Site 1 in 2020 and 2019 Crown College = Site 3 in 2020. In this field season, only one antenna per site was deployed.
 
