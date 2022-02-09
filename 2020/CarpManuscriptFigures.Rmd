@@ -381,10 +381,10 @@ sizeCut<-cut(E(h)$weight/10^8,n)
 edge_weight<-size_vec[sizeCut]
 
 setwd("~/Carp/Figures")
-png(filename="Figure_1B.png")
+pdf(file="Figure_1B.pdf", width= 7.086, height =6)
 plot.igraph(h, vertex.label=V(h)$name,layout=l3, edge.width=edge_weight, edge.color="black")
 scaled <- 1 + ((n-1) * (size_vec - min(size_vec) ) / (  max(size_vec) - min(size_vec) ) )
-legend('topleft', legend=levels(sizeCut), lwd=scaled, col='black')
+legend('topleft', legend=levels(sizeCut), lwd=scaled, col='black', xpd=TRUE, inset=c(-.1, -.1), cex=.8)
 dev.off()
 
 #plot distance vs. edge weight
@@ -396,7 +396,12 @@ library(readxl)
   edges<-data.frame(Site=get.edgelist(h)[,1], Site2=get.edgelist(h)[,2], weight=E(h)$weight) %>% 
   unite("edge", Site:Site2, sep = "--", remove = FALSE) %>% left_join(distances, by=c("edge"))
   
-C<-  edges %>% ggplot(aes(x=Distance, y=weight))+ geom_point(alpha=0.5)+ theme_classic()+xlab("Distance (m)")+ ylab("Edge weight")+ geom_text(aes(label = edge), check_overlap= TRUE, colour="black",vjust="inward", hjust="inward", nudge_x=100) 
+C<-  edges %>% ggplot(aes(x=Distance, y=weight))+ geom_point(alpha=0.5)+ theme_classic()+xlab("Distance (m)")+ ylab("Edge weight")+ geom_text(aes(label = edge), check_overlap= TRUE, colour="black",vjust="inward", hjust="inward", nudge_x=100)
+
+setwd("~/Carp/Figures")
+pdf(file="Figure_1C.pdf", width= 7.086, height =6)
+C
+dev.off()
 ```
 ### Figure 2. Spatiotemporal data streams for Site 1
 ```{r}
@@ -449,8 +454,11 @@ B<-ggplot()+
     data = events_sub)+
   theme_bw()+
   theme(axis.text.y=element_text(size=8), axis.title = element_text(size=10), legend.position = "none")
-  
+
+setwd("~/Carp/Figures")
+pdf(file="Figure_2.pdf", width= 7.086, height =7.086)
 multiplot(A, B, cols=1)
+dev.off()  
 
 #number of events detected by day
 events_by_day<-table(as.Date(s1_corn_gmm$DATETIME))
@@ -479,7 +487,8 @@ scale_x_continuous(breaks=0:20)+
   xlab("Number of carp per feeding bout")+
   ylab(expression(log[10]*"(Number of observations)"))+
   ggtitle("(A)")+
-  theme_bw()
+  theme_bw()#+
+  #theme(plot.title = element_text(face="bold"))
   # ggtitle("Lake Parley: Average group size")
 A
 
@@ -498,7 +507,8 @@ scale_x_continuous(trans = "log2")+
   xlab(expression(log[2]*"(Duration of feeding bout) (min)"))+
   ylab(expression(log[10]*"(Number of observations)"))+
    ggtitle("(B)")+
-  theme_bw()
+  theme_bw()#+
+  #theme(plot.title = element_text(face="bold"))
   # ggtitle("Lake Parley: Duration of feeding bout (min)")
 B
 
@@ -530,7 +540,11 @@ C
 
 top_row <- plot_grid(A, B) #, labels=c("(A)", "(B)"))
 
-plot_grid(top_row, C, labels=c("", "(C)"), ncol = 1)
+setwd("~/Carp/Figures")
+pdf(file="Figure_3.pdf", width= 7.086, height =7.086)
+plot_grid(top_row, C, labels=c("", "     (C)"), ncol = 1, label_fontface="plain")
+dev.off()  
+
 
 mean(parley2020_gs$dur_min)
 median(parley2020_gs$dur_min)
@@ -637,6 +651,7 @@ C<- ggplot(superfish_wide, aes(x=total, y=percentage_max))+
   theme_bw()
 C
 
+
 multiplot(A, plot.with.inset, C, cols=1)
 top20_ID_2020<-top20_ID
 
@@ -677,6 +692,7 @@ lorenzB<-lorenz %>% ggplot()+geom_line(aes(x=prop_forager, y=cum_visits))+ geom_
 ```
 
 ### Figure 4.v2 Superfeeders (Total Daily Detections)
+This is the version that appears in the manuscript.
 
 ```{r}
 start_date<-as.POSIXct("2020-07-03 12:00:00 CDT") #rounded to nearest midday
@@ -769,7 +785,11 @@ C<- ggplot(superfish_wide, aes(x=total, y=percentage_max))+
   theme_bw()
 C
 
+setwd("~/Carp/Figures")
+pdf(file="Figure_4.pdf", width= 7.086, height =7.086)
 multiplot(lorenzB, plot.with.inset, C, cols=1)
+dev.off()
+
 top20_ID_2020<-top20_ID
 
 site_fidelity_top20<-superfish_wide %>% filter(top20==TRUE) %>% select(percentage_max)
@@ -851,8 +871,12 @@ B<-ggplot(network_stats_parley2020, aes(x=degree, y=betweenness))+
   theme_bw()
 B
 
-plot_grid(A, B, labels = c('A', 'B'))
+# plot_grid(A, B, labels = c('A', 'B'))
+setwd("~/Carp/Figures")
+pdf(file="Figure_5.pdf", width= 10, height =4)
 multiplot(A,B, cols=2)
+dev.off()
+
 
 network_stats_top20<- network_stats_parley2020 %>% filter(top20==TRUE)
 network_stats_bottom80 <- network_stats_parley2020 %>% filter(top20==TRUE)
